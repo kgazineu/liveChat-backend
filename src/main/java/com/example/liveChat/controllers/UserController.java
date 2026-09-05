@@ -4,13 +4,15 @@ import com.example.liveChat.dto.UserLoginDTO;
 import com.example.liveChat.dto.UserLoginResponseDTO;
 import com.example.liveChat.dto.UserRegisterDTO;
 import com.example.liveChat.dto.UserResponseDTO;
+import com.example.liveChat.dto.RefreshTokenRequestDTO;
 import com.example.liveChat.models.User;
 import com.example.liveChat.services.UserService;
+import com.example.liveChat.services.RefreshTokenService;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -21,6 +23,9 @@ public class UserController {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private RefreshTokenService refreshTokenService;
 
     @PostMapping("/register")
     public ResponseEntity<UserResponseDTO> register(@RequestBody UserRegisterDTO body) {
@@ -34,6 +39,11 @@ public class UserController {
         return ResponseEntity.ok(token);
     }
 
+    @PostMapping("/refresh")
+    public ResponseEntity<UserLoginResponseDTO> refresh(@RequestBody RefreshTokenRequestDTO body) {
+        return ResponseEntity.ok(refreshTokenService.refresh(body.refreshToken()));
+    }
+
     @GetMapping
     public ResponseEntity<List<UserResponseDTO>> getAllUsers() {
         var users = userService.findAll();
@@ -43,8 +53,8 @@ public class UserController {
     }
 
     @DeleteMapping("{id}")
-    public ResponseEntity<Void> deleteUser(@PathVariable String id){
-        userService.deleteUser(id);
+    public ResponseEntity<Void> deleteUser(@PathVariable String id, @AuthenticationPrincipal User loggedUser){
+        userService.deleteUser(id, loggedUser.getId());
         return ResponseEntity.noContent().build();
     }
 
