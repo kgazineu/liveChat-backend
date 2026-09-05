@@ -30,7 +30,7 @@ public class SecurityFilter extends OncePerRequestFilter {
         if(token != null){
             String email = tokenService.validateToken(token);
 
-            if (!email.isEmpty()) {
+            if (email != null && !email.isBlank()) {
                 UserDetails user = null;
                 try {
                     user = (UserDetails) userRepository.loadUserByUsername(email);
@@ -49,7 +49,7 @@ public class SecurityFilter extends OncePerRequestFilter {
 
     private String recoverToken(HttpServletRequest request){
         var authHeader = request.getHeader("Authorization");
-        if(authHeader == null) return null;
-        return authHeader.replace("Bearer ", "");
+        if(authHeader == null || !authHeader.startsWith("Bearer ")) return null;
+        return authHeader.substring(7);
     }
 }

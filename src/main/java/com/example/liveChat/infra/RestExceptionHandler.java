@@ -5,12 +5,26 @@ import com.example.liveChat.exceptions.UserAlreadyExistsException;
 import com.example.liveChat.exceptions.UserNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 @ControllerAdvice
 public class RestExceptionHandler extends ResponseEntityExceptionHandler {
+    @ExceptionHandler(AuthenticationException.class)
+    private ResponseEntity<RestErrorMessage> authenticationHandler(AuthenticationException exception) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(new RestErrorMessage(HttpStatus.UNAUTHORIZED, exception.getMessage()));
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    private ResponseEntity<RestErrorMessage> accessDeniedHandler(AccessDeniedException exception) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(new RestErrorMessage(HttpStatus.FORBIDDEN, exception.getMessage()));
+    }
+
     @ExceptionHandler(UserNotFoundException.class)
     private ResponseEntity<RestErrorMessage> userNotFoundHandler(UserNotFoundException exception){
         RestErrorMessage threatResponse = new RestErrorMessage(HttpStatus.NOT_FOUND, exception.getMessage());

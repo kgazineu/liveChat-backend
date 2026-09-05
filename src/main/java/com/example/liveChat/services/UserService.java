@@ -6,12 +6,14 @@ import com.example.liveChat.dto.UserRegisterDTO;
 import com.example.liveChat.dto.UserResponseDTO;
 import com.example.liveChat.exceptions.UserAlreadyExistsException;
 import com.example.liveChat.exceptions.UserNotFoundException;
-import com.example.liveChat.infra.security.TokenService;
 import com.example.liveChat.models.User;
 import com.example.liveChat.repositories.UserRepository;
+import com.example.liveChat.repositories.RefreshTokenRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -29,7 +31,10 @@ public class UserService {
     private PasswordEncoder passwordEncoder;
 
     @Autowired
-    private TokenService tokenService;
+    private RefreshTokenService refreshTokenService;
+
+    @Autowired
+    private RefreshTokenRepository refreshTokenRepository;
 
     public User findUserByIdOrThrow(String userId){
         return userRepository.findById(userId)
@@ -38,7 +43,7 @@ public class UserService {
 
     public User loadUserByUsername(String email) {
         return userRepository.findByEmail(email)
-                .orElseThrow(() -> new UserNotFoundException("User not found with email: " + email));
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + email));
     }
 
     @Transactional
@@ -54,13 +59,13 @@ public class UserService {
 
     public UserLoginResponseDTO login(UserLoginDTO data) {
         var user = userRepository.findByEmail(data.email())
-                .orElseThrow(() -> new UserNotFoundException("Invalid email or password"));
+                .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
 
         if (!passwordEncoder.matches(data.password(), user.getPassword())) {
-            throw new UserNotFoundException("Invalid email or password");
+            throw new BadCredentialsException("Invalid email or password");
         }
 
-        return tokenService.generateToken(user);
+        return refreshTokenService.issue(user);
     }
 
     public List<User> findAll() {
@@ -68,10 +73,14 @@ public class UserService {
     }
 
     @Transactional
-    public void deleteUser(String userId) {
+    public void deleteUser(String userId, String loggedUserId) {
+        if (!userId.equals(loggedUserId)) {
+            throw new AccessDeniedException("You can only delete your own account");
+        }
         if(!userRepository.existsById(userId)) {
             throw new UserNotFoundException("User not found");
         }
+        refreshTokenRepository.deleteByUserId(userId);
         userRepository.deleteById(userId);
     }
 

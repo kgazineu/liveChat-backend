@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.UUID;
 
 @Service
 public class TokenService {
@@ -29,22 +30,25 @@ public class TokenService {
             String token = JWT.create()
                     .withIssuer("liveChat")
                     .withSubject(user.getEmail())
+                    .withJWTId(UUID.randomUUID().toString())
                     .withExpiresAt(expirationDate)
                     .sign(algorithm);
-            return new UserLoginResponseDTO(user.getName(), token, expirationDate);
+            return new UserLoginResponseDTO(user.getName(), token, expirationDate, null, null);
         } catch (JWTCreationException exception) {
             throw new RuntimeException("Erro ao gerar token JWT", exception);
         }
     }
 
     public String validateToken(String token){
+        if (token == null || token.isBlank()) return "";
         try {
             Algorithm algorithm = Algorithm.HMAC256(secret);
-            return JWT.require(algorithm)
+            String subject = JWT.require(algorithm)
                     .withIssuer("liveChat")
                     .build()
                     .verify(token)
                     .getSubject();
+            return subject == null ? "" : subject;
         } catch (JWTVerificationException exception){
             return "";
         }
