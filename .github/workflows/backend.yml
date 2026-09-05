@@ -62,5 +62,3 @@ jobs:
           tags: |
             ghcr.io/kgazineu/livechat-backend:${{ github.sha }}
             ghcr.io/kgazineu/livechat-backend:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
