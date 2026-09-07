@@ -9,7 +9,7 @@ on:
 
 concurrency:
   group: backend-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -62,3 +62,24 @@ jobs:
           tags: |
             ghcr.io/kgazineu/livechat-backend:${{ github.sha }}
             ghcr.io/kgazineu/livechat-backend:latest
+
+  deploy:
+    name: Deploy no homelab
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs:
+      - publish
+    runs-on:
+      - self-hosted
+      - Linux
+      - X64
+    timeout-minutes: 10
+
+    steps:
+      - name: Atualizar backend
+        run: |
+          cd /opt/livechat-back
+          docker compose pull app
+          docker compose up -d --wait --wait-timeout 180 app
+          docker compose ps
+          curl --fail --silent --show-error \
+            http://127.0.0.1:8080/actuator/health
