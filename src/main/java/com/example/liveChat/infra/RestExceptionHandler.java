@@ -3,6 +3,8 @@ package com.example.liveChat.infra;
 
 import com.example.liveChat.exceptions.UserAlreadyExistsException;
 import com.example.liveChat.exceptions.UserNotFoundException;
+import com.example.liveChat.exceptions.ServerNotFoundException;
+import com.example.liveChat.exceptions.InvalidRequestException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -37,6 +39,18 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
         RestErrorMessage threatResponse = new RestErrorMessage(HttpStatus.CONFLICT, exception.getMessage());
 
         return ResponseEntity.status(HttpStatus.CONFLICT).body(threatResponse);
+    }
+
+    @ExceptionHandler(ServerNotFoundException.class)
+    private ResponseEntity<RestErrorMessage> serverNotFoundHandler(ServerNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new RestErrorMessage(HttpStatus.NOT_FOUND, exception.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidRequestException.class)
+    private ResponseEntity<RestErrorMessage> invalidRequestHandler(InvalidRequestException exception) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new RestErrorMessage(HttpStatus.BAD_REQUEST, exception.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)
