@@ -2,7 +2,9 @@ package com.example.liveChat.controllers;
 
 import com.example.liveChat.dto.ChannelResponseDTO;
 import com.example.liveChat.dto.CreateChannelRequestDTO;
+import com.example.liveChat.dto.CreateServerInviteRequestDTO;
 import com.example.liveChat.dto.CreateServerRequestDTO;
+import com.example.liveChat.dto.ServerInviteResponseDTO;
 import com.example.liveChat.dto.ServerResponseDTO;
 import com.example.liveChat.infra.RestErrorMessage;
 import com.example.liveChat.models.User;
@@ -20,6 +22,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -98,5 +101,48 @@ public class ServerController {
     public ResponseEntity<List<ChannelResponseDTO>> listChannels(@PathVariable String serverId,
                                                                     @Parameter(hidden = true) @AuthenticationPrincipal User user) {
         return ResponseEntity.ok(serverService.listChannels(serverId, user));
+    }
+
+    @PostMapping("/{serverId}/invites")
+    @Operation(summary = "Convida um amigo para o servidor",
+            description = "O remetente deve ser membro do servidor e o destinatário deve ser um amigo aceito.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Convite enviado",
+                    content = @Content(schema = @Schema(implementation = ServerInviteResponseDTO.class))),
+            @ApiResponse(responseCode = "400", description = "Dados inválidos",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "403", description = "Usuário não é membro ou destinatário não é amigo",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "409", description = "Destinatário já é membro ou já possui convite",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<ServerInviteResponseDTO> inviteFriend(@PathVariable String serverId,
+                                                                  @RequestBody CreateServerInviteRequestDTO request,
+                                                                  @Parameter(hidden = true) @AuthenticationPrincipal User user) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(serverService.inviteFriend(serverId, request, user));
+    }
+
+    @GetMapping("/invites")
+    @Operation(summary = "Lista os convites de servidor pendentes do usuário autenticado")
+    @ApiResponse(responseCode = "200", description = "Convites pendentes encontrados",
+            content = @Content(array = @ArraySchema(schema = @Schema(implementation = ServerInviteResponseDTO.class))))
+    public ResponseEntity<List<ServerInviteResponseDTO>> listPendingInvites(
+            @Parameter(hidden = true) @AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(serverService.listPendingInvites(user));
+    }
+
+    @PatchMapping("/invites/{inviteId}/accept")
+    @Operation(summary = "Aceita um convite de servidor", description = "Somente o destinatário do convite pode aceitá-lo.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Convite aceito e usuário adicionado ao servidor",
+                    content = @Content(schema = @Schema(implementation = ServerResponseDTO.class))),
+            @ApiResponse(responseCode = "404", description = "Convite inexistente ou destinado a outro usuário",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "409", description = "Convite já aceito ou usuário já é membro",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<ServerResponseDTO> acceptInvite(@PathVariable Long inviteId,
+                                                            @Parameter(hidden = true) @AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(serverService.acceptInvite(inviteId, user));
     }
 }

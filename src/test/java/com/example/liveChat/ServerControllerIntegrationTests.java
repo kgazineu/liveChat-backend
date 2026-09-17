@@ -2,6 +2,9 @@ package com.example.liveChat;
 
 import com.example.liveChat.infra.security.TokenService;
 import com.example.liveChat.models.User;
+import com.example.liveChat.models.Friendship;
+import com.example.liveChat.models.FriendshipStatus;
+import com.example.liveChat.repositories.FriendshipRepository;
 import com.example.liveChat.repositories.ServerMemberRepository;
 import com.example.liveChat.repositories.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -21,6 +24,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -33,6 +37,7 @@ class ServerControllerIntegrationTests {
     @Autowired private TokenService tokens;
     @Autowired private UserRepository users;
     @Autowired private ServerMemberRepository members;
+    @Autowired private FriendshipRepository friendships;
     @Autowired private PasswordEncoder passwordEncoder;
 
     @Test
@@ -111,6 +116,66 @@ class ServerControllerIntegrationTests {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void memberCanInviteAnAcceptedFriendWhoMustExplicitlyAcceptToJoin() throws Exception {
+        User owner = user();
+        User friend = user();
+        makeFriends(owner, friend);
+        String serverId = createServer(owner, "Comunidade");
+
+        String inviteResponse = mvc.perform(post("/servers/" + serverId + "/invites")
+                        .header("Authorization", bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of("friendId", friend.getId()))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("serverId").value(serverId))
+                .andExpect(jsonPath("inviterId").value(owner.getId()))
+                .andExpect(jsonPath("status").value("PENDING"))
+                .andReturn().getResponse().getContentAsString();
+        long inviteId = mapper.readTree(inviteResponse).get("id").asLong();
+
+        mvc.perform(get("/servers/invites").header("Authorization", bearer(friend)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(inviteId));
+        assertThat(members.findByServerIdAndUserId(serverId, friend.getId())).isEmpty();
+
+        mvc.perform(patch("/servers/invites/" + inviteId + "/accept").header("Authorization", bearer(friend)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("id").value(serverId))
+                .andExpect(jsonPath("role").value("MEMBER"));
+        assertThat(members.findByServerIdAndUserId(serverId, friend.getId())).isPresent()
+                .get().extracting(member -> member.getRole().name()).isEqualTo("MEMBER");
+    }
+
+    @Test
+    void inviteRequiresFriendshipAndOnlyTheInviteeCanAccept() throws Exception {
+        User owner = user();
+        User friend = user();
+        User outsider = user();
+        makeFriends(owner, friend);
+        String serverId = createServer(owner, "Privado");
+
+        mvc.perform(post("/servers/" + serverId + "/invites").header("Authorization", bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of("friendId", outsider.getId()))))
+                .andExpect(status().isForbidden());
+
+        String inviteResponse = mvc.perform(post("/servers/" + serverId + "/invites")
+                        .header("Authorization", bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of("friendId", friend.getId()))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long inviteId = mapper.readTree(inviteResponse).get("id").asLong();
+
+        mvc.perform(patch("/servers/invites/" + inviteId + "/accept").header("Authorization", bearer(outsider)))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/servers/" + serverId + "/invites").header("Authorization", bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of("friendId", friend.getId()))))
+                .andExpect(status().isConflict());
+    }
+
     private String createServer(User owner, String name) throws Exception {
         String body = mvc.perform(post("/servers").header("Authorization", bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -126,5 +191,11 @@ class ServerControllerIntegrationTests {
 
     private User user() {
         return users.save(new User("Test", UUID.randomUUID() + "@example.test", passwordEncoder.encode("password")));
+    }
+
+    private void makeFriends(User first, User second) {
+        Friendship friendship = new Friendship(first, second);
+        friendship.setStatus(FriendshipStatus.ACCEPTED);
+        friendships.save(friendship);
     }
 }
