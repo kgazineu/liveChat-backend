@@ -54,7 +54,7 @@ public class WebsocketSecurityInterceptor implements ChannelInterceptor {
         }
         if (command == null || command == StompCommand.UNSUBSCRIBE) return message;
         if (command == StompCommand.SEND && isAllowedSendDestination(accessor.getDestination())) return message;
-        if (command == StompCommand.SUBSCRIBE && "/user/queue/messages".equals(accessor.getDestination())) return message;
+        if (command == StompCommand.SUBSCRIBE && isAllowedSubscribeDestination(accessor.getDestination())) return message;
 
         throw new AccessDeniedException("STOMP destination or command not allowed");
     }
@@ -63,5 +63,9 @@ public class WebsocketSecurityInterceptor implements ChannelInterceptor {
         if (destination == null) return false;
         return destination.matches("^/app/direct-channels/[0-9a-fA-F-]{36}/messages$")
                 || destination.matches("^/app/servers/[0-9a-fA-F-]{36}/channels/[0-9a-fA-F-]{36}/messages$");
+    }
+
+    private boolean isAllowedSubscribeDestination(String destination) {
+        return "/user/queue/messages".equals(destination) || "/user/queue/media-presence".equals(destination);
     }
 }

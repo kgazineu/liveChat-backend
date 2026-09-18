@@ -18,6 +18,8 @@ tags:
     description: Servidores, membros, canais e convites entre amigos.
   - name: WebSocket
     description: Handshake e protocolo STOMP de mensagens em tempo real.
+  - name: Presença de mídia
+    description: Participação efêmera em chamadas de voz, câmera e compartilhamento de tela.
   - name: Monitoramento
     description: Estado de saúde da aplicação e dependências.
 paths:
@@ -331,6 +333,101 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /direct-channels/{channelId}/media-sessions:
+    post:
+      tags: [Presença de mídia]
+      operationId: joinDirectChannelMediaSession
+      summary: Entra na chamada privada 1:1
+      description: Somente os participantes do canal podem entrar. Entrar encerra qualquer presença de mídia anterior do usuário.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DirectChannelId'
+      responses:
+        '200':
+          description: Presença de mídia ativa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaSession'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    get:
+      tags: [Presença de mídia]
+      operationId: listDirectChannelMediaSessions
+      summary: Lista os participantes da chamada privada 1:1
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DirectChannelId'
+      responses:
+        '200':
+          description: Participantes ativos ou em reconexão
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MediaSession'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Presença de mídia]
+      operationId: leaveDirectChannelMediaSession
+      summary: Sai da chamada privada 1:1
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DirectChannelId'
+      responses:
+        '204':
+          description: Presença encerrada
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /direct-channels/{channelId}/media-sessions/me:
+    patch:
+      tags: [Presença de mídia]
+      operationId: updateDirectChannelMediaState
+      summary: Atualiza microfone, câmera ou tela na chamada privada
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DirectChannelId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaStateRequest'
+      responses:
+        '200':
+          description: Estado atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /direct-channels/{channelId}/messages:
     post:
       tags: [Mensagens]
@@ -506,6 +603,113 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /servers/{serverId}/channels/{channelId}/media-sessions:
+    post:
+      tags: [Presença de mídia]
+      operationId: joinServerVoiceChannelMediaSession
+      summary: Entra em um canal de voz do servidor
+      description: Exige participação no servidor e aceita somente canais `VOICE`. Entrar em outro canal encerra a presença anterior do usuário. O limite é de cinco participantes simultâneos.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServerId'
+        - $ref: '#/components/parameters/ServerChannelId'
+      responses:
+        '200':
+          description: Presença de mídia ativa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    get:
+      tags: [Presença de mídia]
+      operationId: listServerVoiceChannelMediaSessions
+      summary: Lista os participantes de um canal de voz
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServerId'
+        - $ref: '#/components/parameters/ServerChannelId'
+      responses:
+        '200':
+          description: Participantes ativos ou em reconexão
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MediaSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Presença de mídia]
+      operationId: leaveServerVoiceChannelMediaSession
+      summary: Sai de um canal de voz do servidor
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServerId'
+        - $ref: '#/components/parameters/ServerChannelId'
+      responses:
+        '204':
+          description: Presença encerrada
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /servers/{serverId}/channels/{channelId}/media-sessions/me:
+    patch:
+      tags: [Presença de mídia]
+      operationId: updateServerVoiceChannelMediaState
+      summary: Atualiza microfone, câmera ou tela no canal de voz
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServerId'
+        - $ref: '#/components/parameters/ServerChannelId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaStateRequest'
+      responses:
+        '200':
+          description: Estado atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /servers/{serverId}/channels/{channelId}/messages:
     post:
       tags: [Mensagens]
@@ -654,6 +858,7 @@ paths:
         - `SEND` para `/app/servers/{serverId}/channels/{channelId}/messages` para uma mensagem de servidor;
         - ambos usam o corpo `MessageRequest`;
         - `SUBSCRIBE` em `/user/queue/messages` para receber `Message`;
+        - `SUBSCRIBE` em `/user/queue/media-presence` para receber `MediaPresenceEvent`;
         - os demais destinos de envio e assinatura são rejeitados.
 
         O endpoint usa WebSocket nativo, sem SockJS. A autenticação não é enviada como header HTTP
@@ -665,10 +870,13 @@ paths:
             - /app/direct-channels/{channelId}/messages
             - /app/servers/{serverId}/channels/{channelId}/messages
           x-stomp-subscribe-destination: /user/queue/messages
+          x-stomp-media-presence-subscribe-destination: /user/queue/media-presence
           x-stomp-send-schema:
             $ref: '#/components/schemas/MessageRequest'
           x-stomp-message-schema:
             $ref: '#/components/schemas/Message'
+          x-stomp-media-presence-event-schema:
+            $ref: '#/components/schemas/MediaPresenceEvent'
         '400':
           description: Handshake WebSocket inválido.
   /actuator/health:
@@ -905,6 +1113,64 @@ components:
           type: string
           format: date-time
           description: Instante UTC em que a mensagem foi persistida.
+    MediaStateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        microphoneEnabled:
+          type: boolean
+          description: Microfone está transmitindo.
+        cameraEnabled:
+          type: boolean
+          description: Câmera está transmitindo.
+        screenShareEnabled:
+          type: boolean
+          description: Compartilhamento de tela ou janela está ativo.
+    MediaSession:
+      type: object
+      required: [channelKind, channelId, userId, userName, status, microphoneEnabled, cameraEnabled, screenShareEnabled, joinedAt, lastSeenAt]
+      properties:
+        channelKind:
+          type: string
+          enum: [SERVER_VOICE, DIRECT]
+        serverId:
+          type: string
+          format: uuid
+          nullable: true
+          description: UUID do servidor; ausente para chamadas privadas 1:1.
+        channelId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        userName:
+          type: string
+          example: Ana Silva
+        status:
+          type: string
+          enum: [ACTIVE, RECONNECTING]
+        microphoneEnabled:
+          type: boolean
+        cameraEnabled:
+          type: boolean
+        screenShareEnabled:
+          type: boolean
+        joinedAt:
+          type: string
+          format: date-time
+        lastSeenAt:
+          type: string
+          format: date-time
+    MediaPresenceEvent:
+      type: object
+      required: [type, participant]
+      properties:
+        type:
+          type: string
+          enum: [media.participant.joined, media.participant.left, media.participant.updated]
+        participant:
+          $ref: '#/components/schemas/MediaSession'
     CreateDirectChannelRequest:
       type: object
       required: [participantId]

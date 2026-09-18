@@ -164,6 +164,8 @@ class SecurityIntegrationTests {
                         org.hamcrest.Matchers.containsString("openapi: 3.0.3"),
                         org.hamcrest.Matchers.containsString("/direct-channels:"),
                         org.hamcrest.Matchers.containsString("/direct-channels/{channelId}/messages:"),
+                        org.hamcrest.Matchers.containsString("/direct-channels/{channelId}/media-sessions:"),
+                        org.hamcrest.Matchers.containsString("/servers/{serverId}/channels/{channelId}/media-sessions:"),
                         org.hamcrest.Matchers.containsString("/servers/{serverId}/channels/{channelId}/messages:"))));
         mvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isUnauthorized());

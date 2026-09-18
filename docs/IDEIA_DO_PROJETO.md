@@ -24,8 +24,11 @@ As funcionalidades atuais são:
 - canais de servidor dos tipos `TEXT` e `VOICE`;
 - convites direcionados a amigos aceitos, com aceite explícito do destinatário.
 - canais privados 1:1 permanentes, com criação idempotente, listagem e consulta limitada aos dois participantes.
+- presença efêmera de mídia em canais `VOICE` de servidor e em canais privados 1:1, com entrada, saída, troca atômica de canal, participantes atuais e estado de microfone, câmera e tela; cada canal de voz de servidor aceita até cinco participantes simultâneos;
+- eventos STOMP de presença em `/user/queue/media-presence` para os participantes autorizados;
+- Redis para manter sessões de presença e preservar o estado `reconnecting` por 30 segundos após uma desconexão inesperada.
 
-Ainda não há presença de mídia ou chamadas de áudio, câmera e tela.
+Ainda não há transmissão de áudio, câmera ou tela: a sessão de presença prepara a autorização e a experiência para a conexão WebRTC com o LiveKit.
 
 As mensagens privadas que existiam antes dos canais 1:1 são migradas uma única vez na inicialização para o canal privado do respectivo par de usuários. A origem é mantida como referência interna de migração, evitando duplicação em reinicializações.
 
@@ -186,7 +189,7 @@ As mensagens privadas existentes representam conversas diretas entre dois usuár
 - remodelar as mensagens para persistir e listar mensagens por canal de texto ou canal privado 1:1;
 - garantir autorização de membro em todas as rotas.
 
-### Marco 2 — presença de mídia
+### Marco 2 — presença de mídia (implementado)
 
 - entrar, sair e trocar de canal;
 - expor participantes atuais do canal;
@@ -220,6 +223,6 @@ As mensagens privadas existentes representam conversas diretas entre dois usuár
 
 ## Próximo passo sugerido
 
-Iniciar o Marco 2 com a presença de mídia: adicionar Redis e modelar a sessão efêmera para entrar, sair e trocar de canais de voz ou privados. A primeira entrega deve publicar os eventos STOMP de presença e preservar o estado `reconnecting` por até 30 segundos.
+Iniciar o Marco 3 com a infraestrutura do LiveKit auto-hospedado e a emissão de credenciais de acesso de curta duração. A primeira entrega deve criar a sala de mídia correspondente ao canal autorizado — de voz do servidor ou privado 1:1 — e devolver a credencial ao cliente sem permitir que ele escolha livremente a sala.
 
 O fluxo de convite já é direcionado a um amigo aceito e exige aceite explícito, mas o backend ainda não emite um token ou URL de convite próprio. Esse é um refinamento separado para que o cliente possa compartilhar um link sem depender do identificador interno do convite.

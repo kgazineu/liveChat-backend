@@ -21,6 +21,24 @@ services:
       retries: 5
       start_period: 10s
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --notify-keyspace-events Ex
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   app:
     image: ${APP_IMAGE:-livechat-back:local}
     build:
@@ -30,6 +48,8 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB_NAME:-livechat}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER_NAME:-livechat}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASS_WORD:?defina POSTGRES_PASS_WORD no arquivo .env}
+
+      SPRING_DATA_REDIS_HOST: redis
       SPRING_DOCKER_COMPOSE_ENABLED: "false"
       JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no arquivo .env}
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75.0
@@ -37,6 +57,8 @@ services:
       - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -49,3 +71,4 @@ services:
 
 volumes:
   postgres-data:
+  redis-data:
