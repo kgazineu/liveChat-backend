@@ -482,6 +482,30 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+    get:
+      tags: [Servidores]
+      operationId: listServerChannels
+      summary: Lista os canais de um servidor
+      description: Exige que o usuário autenticado seja membro.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServerId'
+      responses:
+        '200':
+          description: Canais encontrados, ordenados pela posição de criação.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServerChannel'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /servers/{serverId}/channels/{channelId}/messages:
     post:
       tags: [Mensagens]
@@ -535,30 +559,6 @@ paths:
                   $ref: '#/components/schemas/Message'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    get:
-      tags: [Servidores]
-      operationId: listServerChannels
-      summary: Lista os canais de um servidor
-      description: Exige que o usuário autenticado seja membro.
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/ServerId'
-      responses:
-        '200':
-          description: Canais encontrados, ordenados pela posição de criação.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ServerChannel'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':

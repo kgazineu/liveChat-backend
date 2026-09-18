@@ -18,7 +18,11 @@ import org.springframework.http.MediaType;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.core.io.ClassPathResource;
+import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.Yaml;
 
+import java.io.InputStream;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -153,10 +157,7 @@ class SecurityIntegrationTests {
     }
 
     @Test
-    void apiDocumentationIsPublic() throws Exception {
-        mvc.perform(get("/v3/api-docs"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.info.title").value("LiveChat API"));
+    void swaggerDocumentationIsAvailableAtDocsWithoutTheDynamicJsonApi() throws Exception {
         mvc.perform(get("/openapi.yaml"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.allOf(
@@ -164,14 +165,31 @@ class SecurityIntegrationTests {
                         org.hamcrest.Matchers.containsString("/direct-channels:"),
                         org.hamcrest.Matchers.containsString("/direct-channels/{channelId}/messages:"),
                         org.hamcrest.Matchers.containsString("/servers/{serverId}/channels/{channelId}/messages:"))));
+        mvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isUnauthorized());
         mvc.perform(get("/v3/api-docs/swagger-config"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.url").value("/openapi.yaml"));
-        mvc.perform(get("/swagger-ui.html"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/docs"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/swagger-ui/index.html"));
         mvc.perform(get("/swagger-ui/index.html"))
                 .andExpect(status().isOk());
+        mvc.perform(get("/swagger-ui/swagger-initializer.js"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("/openapi.yaml")));
+    }
+
+    @Test
+    void staticOpenApiYamlDoesNotContainDuplicateKeys() {
+        LoaderOptions options = new LoaderOptions();
+        options.setAllowDuplicateKeys(false);
+
+        try (InputStream stream = new ClassPathResource("static/openapi.yaml").getInputStream()) {
+            Object document = new Yaml(options).load(stream);
+            assertThat(document).isNotNull();
+        } catch (Exception exception) {
+            throw new AssertionError("O contrato OpenAPI está inválido", exception);
+        }
     }
 
     private User user() {
