@@ -20,8 +20,12 @@ As funcionalidades atuais são:
 - mensagens privadas persistidas entre dois usuários;
 - WebSocket nativo em `/ws`, com STOMP e autenticação por `Authorization: Bearer <JWT>` no frame `CONNECT`;
 - envio de mensagem para `/app/chat` e recebimento privado em `/user/queue/messages`.
+- servidores com proprietário e membros;
+- canais de servidor dos tipos `TEXT` e `VOICE`;
+- convites direcionados a amigos aceitos, com aceite explícito do destinatário.
+- canais privados 1:1 permanentes, com criação idempotente, listagem e consulta limitada aos dois participantes.
 
-Ainda não há o conceito de servidor, membro de servidor, canal, convite, presença ou chamada de áudio.
+Ainda não há mensagens vinculadas a canais, presença de mídia ou chamadas de áudio, câmera e tela.
 
 ## Experiência desejada
 
@@ -214,4 +218,6 @@ As mensagens privadas existentes representam conversas diretas entre dois usuár
 
 ## Próximo passo sugerido
 
-Implementar o Marco 1 antes da mídia: modelar `Server`, `ServerMember` e `Channel`, criar as rotas autenticadas correspondentes e cobri-las com testes de autorização. Isso estabelece o limite de acesso que será reutilizado pela presença e pelos tokens de áudio.
+Remodelar as mensagens privadas existentes para vinculá-las aos canais privados 1:1. Em seguida, implementar mensagens persistidas nos canais `TEXT` de servidor, sempre reutilizando as verificações de participação já estabelecidas.
+
+O fluxo de convite já é direcionado a um amigo aceito e exige aceite explícito, mas o backend ainda não emite um token ou URL de convite próprio. Esse é um refinamento separado para que o cliente possa compartilhar um link sem depender do identificador interno do convite.

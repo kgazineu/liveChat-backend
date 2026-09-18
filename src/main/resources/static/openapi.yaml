@@ -12,6 +12,8 @@ tags:
     description: Solicitações e relacionamentos entre usuários.
   - name: Mensagens
     description: Histórico e entrega de mensagens privadas.
+  - name: Canais privados
+    description: Conversas privadas entre exatamente dois usuários.
   - name: Servidores
     description: Servidores, membros, canais e convites entre amigos.
   - name: WebSocket
@@ -285,6 +287,79 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /direct-channels:
+    post:
+      tags: [Canais privados]
+      operationId: createOrGetDirectChannel
+      summary: Cria ou recupera um canal privado 1:1
+      description: Há no máximo um canal para cada par de usuários, independentemente de qual deles inicia a conversa.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDirectChannelRequest'
+      responses:
+        '201':
+          description: Canal privado criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectChannel'
+        '200':
+          description: Canal privado já existente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectChannel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    get:
+      tags: [Canais privados]
+      operationId: listDirectChannels
+      summary: Lista os canais privados do usuário autenticado
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Canais privados encontrados
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DirectChannel'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /direct-channels/{channelId}:
+    get:
+      tags: [Canais privados]
+      operationId: getDirectChannel
+      summary: Consulta um canal privado
+      description: Somente os dois participantes podem consultá-lo.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DirectChannelId'
+      responses:
+        '200':
+          description: Canal privado encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectChannel'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /servers:
     post:
       tags: [Servidores]
@@ -566,6 +641,14 @@ components:
       schema:
         type: integer
         format: int64
+    DirectChannelId:
+      name: channelId
+      in: path
+      required: true
+      description: UUID do canal privado.
+      schema:
+        type: string
+        format: uuid
   responses:
     BadRequest:
       description: Requisição inválida.
@@ -734,6 +817,31 @@ components:
           type: string
           format: date-time
           description: Data e hora local em que a mensagem foi persistida.
+    CreateDirectChannelRequest:
+      type: object
+      required: [participantId]
+      properties:
+        participantId:
+          type: string
+          format: uuid
+          description: UUID do outro participante.
+    DirectChannel:
+      type: object
+      required: [id, participantId, participantName, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        participantId:
+          type: string
+          format: uuid
+          description: UUID do outro participante.
+        participantName:
+          type: string
+          example: Ana Silva
+        createdAt:
+          type: string
+          format: date-time
     CreateServerRequest:
       type: object
       required: [name]

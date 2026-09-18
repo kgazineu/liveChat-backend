@@ -37,6 +37,8 @@ public class OpenApiConfig {
                         new Tag().name("Usuários").description("Cadastro, autenticação e gerenciamento da conta."),
                         new Tag().name("Amizades").description("Solicitações e relacionamentos entre usuários."),
                         new Tag().name("Mensagens").description("Histórico de mensagens privadas."),
+                        new Tag().name("Canais privados").description("Conversas privadas entre exatamente dois usuários."),
+                        new Tag().name("Servidores").description("Servidores, membros, canais e convites."),
                         new Tag().name("WebSocket").description("Handshake e protocolo STOMP para mensagens em tempo real."),
                         new Tag().name("Monitoramento").description("Estado de saúde da aplicação e de suas dependências.")))
                 .components(new Components()
