@@ -3,6 +3,10 @@ package com.example.liveChat.infra;
 
 import com.example.liveChat.exceptions.UserAlreadyExistsException;
 import com.example.liveChat.exceptions.UserNotFoundException;
+import com.example.liveChat.exceptions.ServerNotFoundException;
+import com.example.liveChat.exceptions.ServerInviteNotFoundException;
+import com.example.liveChat.exceptions.InvalidRequestException;
+import com.example.liveChat.exceptions.ResourceConflictException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -37,6 +41,30 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
         RestErrorMessage threatResponse = new RestErrorMessage(HttpStatus.CONFLICT, exception.getMessage());
 
         return ResponseEntity.status(HttpStatus.CONFLICT).body(threatResponse);
+    }
+
+    @ExceptionHandler(ServerNotFoundException.class)
+    private ResponseEntity<RestErrorMessage> serverNotFoundHandler(ServerNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new RestErrorMessage(HttpStatus.NOT_FOUND, exception.getMessage()));
+    }
+
+    @ExceptionHandler(ServerInviteNotFoundException.class)
+    private ResponseEntity<RestErrorMessage> serverInviteNotFoundHandler(ServerInviteNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new RestErrorMessage(HttpStatus.NOT_FOUND, exception.getMessage()));
+    }
+
+    @ExceptionHandler(ResourceConflictException.class)
+    private ResponseEntity<RestErrorMessage> resourceConflictHandler(ResourceConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new RestErrorMessage(HttpStatus.CONFLICT, exception.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidRequestException.class)
+    private ResponseEntity<RestErrorMessage> invalidRequestHandler(InvalidRequestException exception) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new RestErrorMessage(HttpStatus.BAD_REQUEST, exception.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)
