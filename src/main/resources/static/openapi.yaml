@@ -13,7 +13,7 @@ tags:
   - name: Mensagens
     description: Histórico e entrega de mensagens privadas.
   - name: Servidores
-    description: Servidores, membros proprietários e canais.
+    description: Servidores, membros, canais e convites entre amigos.
   - name: WebSocket
     description: Handshake e protocolo STOMP de mensagens em tempo real.
   - name: Monitoramento
@@ -405,6 +405,80 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /servers/{serverId}/invites:
+    post:
+      tags: [Servidores]
+      operationId: inviteFriendToServer
+      summary: Convida um amigo para o servidor
+      description: O remetente deve ser membro do servidor e o destinatário deve ser um amigo com amizade aceita. O convite não adiciona o destinatário até que ele o aceite.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServerInviteRequest'
+      responses:
+        '201':
+          description: Convite enviado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerInvite'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /servers/invites:
+    get:
+      tags: [Servidores]
+      operationId: listPendingServerInvites
+      summary: Lista os convites de servidor pendentes do usuário autenticado
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Convites pendentes encontrados
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServerInvite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /servers/invites/{inviteId}/accept:
+    patch:
+      tags: [Servidores]
+      operationId: acceptServerInvite
+      summary: Aceita um convite de servidor
+      description: Somente o destinatário do convite pode aceitar. A confirmação cria seu vínculo como membro do servidor.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServerInviteId'
+      responses:
+        '200':
+          description: Convite aceito e usuário adicionado ao servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Server'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /ws:
     get:
       tags: [WebSocket]
@@ -484,6 +558,14 @@ components:
       schema:
         type: string
         format: uuid
+    ServerInviteId:
+      name: inviteId
+      in: path
+      required: true
+      description: Identificador numérico do convite de servidor.
+      schema:
+        type: integer
+        format: int64
   responses:
     BadRequest:
       description: Requisição inválida.
@@ -677,6 +759,39 @@ components:
         role:
           type: string
           enum: [OWNER, MEMBER]
+        createdAt:
+          type: string
+          format: date-time
+    CreateServerInviteRequest:
+      type: object
+      required: [friendId]
+      properties:
+        friendId:
+          type: string
+          format: uuid
+          description: UUID de um amigo com amizade aceita que receberá o convite.
+    ServerInvite:
+      type: object
+      required: [id, serverId, serverName, inviterId, inviterName, status, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        serverId:
+          type: string
+          format: uuid
+        serverName:
+          type: string
+          example: Equipe de produto
+        inviterId:
+          type: string
+          format: uuid
+        inviterName:
+          type: string
+          example: Ana Silva
+        status:
+          type: string
+          enum: [PENDING, ACCEPTED]
         createdAt:
           type: string
           format: date-time

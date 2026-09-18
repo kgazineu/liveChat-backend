@@ -2,18 +2,27 @@ package com.example.liveChat.services;
 
 import com.example.liveChat.dto.ChannelResponseDTO;
 import com.example.liveChat.dto.CreateChannelRequestDTO;
+import com.example.liveChat.dto.CreateServerInviteRequestDTO;
 import com.example.liveChat.dto.CreateServerRequestDTO;
+import com.example.liveChat.dto.ServerInviteResponseDTO;
 import com.example.liveChat.dto.ServerResponseDTO;
 import com.example.liveChat.exceptions.InvalidRequestException;
+import com.example.liveChat.exceptions.ResourceConflictException;
+import com.example.liveChat.exceptions.ServerInviteNotFoundException;
 import com.example.liveChat.exceptions.ServerNotFoundException;
 import com.example.liveChat.models.Server;
 import com.example.liveChat.models.ServerChannel;
+import com.example.liveChat.models.ServerInvite;
+import com.example.liveChat.models.ServerInviteStatus;
 import com.example.liveChat.models.ServerMember;
 import com.example.liveChat.models.ServerRole;
 import com.example.liveChat.models.User;
+import com.example.liveChat.repositories.FriendshipRepository;
 import com.example.liveChat.repositories.ServerChannelRepository;
+import com.example.liveChat.repositories.ServerInviteRepository;
 import com.example.liveChat.repositories.ServerMemberRepository;
 import com.example.liveChat.repositories.ServerRepository;
+import com.example.liveChat.repositories.UserRepository;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,12 +36,19 @@ public class ServerService {
     private final ServerRepository serverRepository;
     private final ServerMemberRepository serverMemberRepository;
     private final ServerChannelRepository serverChannelRepository;
+    private final ServerInviteRepository serverInviteRepository;
+    private final FriendshipRepository friendshipRepository;
+    private final UserRepository userRepository;
 
     public ServerService(ServerRepository serverRepository, ServerMemberRepository serverMemberRepository,
-                         ServerChannelRepository serverChannelRepository) {
+                         ServerChannelRepository serverChannelRepository, ServerInviteRepository serverInviteRepository,
+                         FriendshipRepository friendshipRepository, UserRepository userRepository) {
         this.serverRepository = serverRepository;
         this.serverMemberRepository = serverMemberRepository;
         this.serverChannelRepository = serverChannelRepository;
+        this.serverInviteRepository = serverInviteRepository;
+        this.friendshipRepository = friendshipRepository;
+        this.userRepository = userRepository;
     }
 
     @Transactional
@@ -79,6 +95,57 @@ public class ServerService {
         return serverChannelRepository.findByServerIdOrderByPositionAscIdAsc(serverId).stream()
                 .map(ChannelResponseDTO::from)
                 .toList();
+    }
+
+    @Transactional
+    public ServerInviteResponseDTO inviteFriend(String serverId, CreateServerInviteRequestDTO request, User inviter) {
+        Server server = getServer(serverId);
+        getMember(serverId, inviter);
+        if (request == null || request.friendId() == null || request.friendId().isBlank()) {
+            throw new InvalidRequestException("Friend id is required");
+        }
+        if (inviter.getId().equals(request.friendId())) {
+            throw new InvalidRequestException("You cannot invite yourself");
+        }
+
+        User invitee = userRepository.findById(request.friendId())
+                .orElseThrow(() -> new InvalidRequestException("Friend not found"));
+        if (!friendshipRepository.areFriends(inviter, invitee)) {
+            throw new AccessDeniedException("You can only invite accepted friends");
+        }
+        if (serverMemberRepository.findByServerIdAndUserId(serverId, invitee.getId()).isPresent()) {
+            throw new ResourceConflictException("User is already a member of this server");
+        }
+        if (serverInviteRepository.existsByServerIdAndInviteeId(serverId, invitee.getId())) {
+            throw new ResourceConflictException("A server invite already exists for this user");
+        }
+
+        return ServerInviteResponseDTO.from(serverInviteRepository.save(new ServerInvite(server, inviter, invitee)));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ServerInviteResponseDTO> listPendingInvites(User user) {
+        return serverInviteRepository.findByInviteeIdAndStatusOrderByCreatedAtDesc(user.getId(), ServerInviteStatus.PENDING)
+                .stream()
+                .map(ServerInviteResponseDTO::from)
+                .toList();
+    }
+
+    @Transactional
+    public ServerResponseDTO acceptInvite(Long inviteId, User user) {
+        ServerInvite invite = serverInviteRepository.findByIdAndInviteeId(inviteId, user.getId())
+                .orElseThrow(() -> new ServerInviteNotFoundException("Server invite not found"));
+        if (invite.getStatus() != ServerInviteStatus.PENDING) {
+            throw new ResourceConflictException("Server invite has already been accepted");
+        }
+        String serverId = invite.getServer().getId();
+        if (serverMemberRepository.findByServerIdAndUserId(serverId, user.getId()).isPresent()) {
+            throw new ResourceConflictException("User is already a member of this server");
+        }
+
+        ServerMember member = serverMemberRepository.save(new ServerMember(invite.getServer(), user, ServerRole.MEMBER));
+        invite.accept();
+        return ServerResponseDTO.from(invite.getServer(), member);
     }
 
     private Server getServer(String serverId) {
