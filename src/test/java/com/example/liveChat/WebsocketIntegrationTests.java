@@ -13,6 +13,7 @@ import com.example.liveChat.repositories.ServerChannelRepository;
 import com.example.liveChat.repositories.ServerMemberRepository;
 import com.example.liveChat.repositories.ServerRepository;
 import com.example.liveChat.repositories.UserRepository;
+import com.example.liveChat.services.MediaPresenceService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -51,6 +52,7 @@ class WebsocketIntegrationTests {
     @Autowired private ServerChannelRepository channels;
     @Autowired private SimpUserRegistry userRegistry;
     @Autowired private SimpleBrokerMessageHandler broker;
+    @Autowired private MediaPresenceService mediaPresenceService;
 
     @Test
     void anonymousAndInvalidConnectReceiveError() throws Exception {
@@ -116,6 +118,31 @@ class WebsocketIntegrationTests {
         }
     }
 
+    @Test
+    void serverVoicePresenceIsDeliveredToEveryMember() throws Exception {
+        User owner = user();
+        User member = user();
+        Server server = servers.save(new Server("Equipe", owner));
+        members.save(new ServerMember(server, owner, ServerRole.OWNER));
+        members.save(new ServerMember(server, member, ServerRole.MEMBER));
+        ServerChannel voiceChannel = channels.save(new ServerChannel(server, "sala", ChannelType.VOICE, 0));
+
+        try (Connection ownerConnection = connect(); Connection memberConnection = connect()) {
+            authenticate(ownerConnection, owner);
+            authenticate(memberConnection, member);
+            subscribeToMediaPresence(ownerConnection, owner);
+            subscribeToMediaPresence(memberConnection, member);
+
+            mediaPresenceService.joinServerVoiceChannel(server.getId(), voiceChannel.getId(), owner);
+
+            for (Connection connection : new Connection[]{ownerConnection, memberConnection}) {
+                assertThat(connection.next()).startsWith("MESSAGE\n")
+                        .contains("\"type\":\"media.participant.joined\"", "\"userId\":\"" + owner.getId() + "\"",
+                                "\"channelId\":\"" + voiceChannel.getId() + "\"");
+            }
+        }
+    }
+
     private void subscribe(Connection connection, User user) {
         connection.send("SUBSCRIBE\nid:messages\ndestination:/user/queue/messages\n\n\0");
         await().atMost(Duration.ofSeconds(5)).until(() -> {
@@ -124,6 +151,20 @@ class WebsocketIntegrationTests {
             return connectedUser.getSessions().stream().anyMatch(session -> {
                 var headers = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
                 headers.setDestination("/queue/messages-user" + session.getId());
+                return !broker.getSubscriptionRegistry().findSubscriptions(
+                        MessageBuilder.createMessage(new byte[0], headers.getMessageHeaders())).isEmpty();
+            });
+        });
+    }
+
+    private void subscribeToMediaPresence(Connection connection, User user) {
+        connection.send("SUBSCRIBE\nid:media-presence\ndestination:/user/queue/media-presence\n\n\0");
+        await().atMost(Duration.ofSeconds(5)).until(() -> {
+            var connectedUser = userRegistry.getUser(user.getEmail());
+            if (connectedUser == null) return false;
+            return connectedUser.getSessions().stream().anyMatch(session -> {
+                var headers = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
+                headers.setDestination("/queue/media-presence-user" + session.getId());
                 return !broker.getSubscriptionRegistry().findSubscriptions(
                         MessageBuilder.createMessage(new byte[0], headers.getMessageHeaders())).isEmpty();
             });
