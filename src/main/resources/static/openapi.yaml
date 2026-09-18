@@ -11,7 +11,7 @@ tags:
   - name: Amizades
     description: Solicitações e relacionamentos entre usuários.
   - name: Mensagens
-    description: Histórico e entrega de mensagens privadas.
+    description: Histórico e entrega de mensagens de canais privados e de texto em servidores.
   - name: Canais privados
     description: Conversas privadas entre exatamente dois usuários.
   - name: Servidores
@@ -258,35 +258,6 @@ paths:
                   $ref: '#/components/schemas/FriendshipRequestResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-  /messages/{targetUserId}:
-    get:
-      tags: [Mensagens]
-      operationId: getPrivateMessageHistory
-      summary: Obtém o histórico entre dois usuários
-      description: Retorna em ordem cronológica as mensagens entre o usuário autenticado e o usuário informado.
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: targetUserId
-          in: path
-          required: true
-          description: UUID do outro participante.
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Histórico encontrado
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Message'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
   /direct-channels:
     post:
       tags: [Canais privados]
@@ -354,6 +325,61 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DirectChannel'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /direct-channels/{channelId}/messages:
+    post:
+      tags: [Mensagens]
+      operationId: sendDirectChannelMessage
+      summary: Envia uma mensagem em um canal privado
+      description: Somente um dos dois participantes do canal pode enviar mensagens.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DirectChannelId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageRequest'
+      responses:
+        '201':
+          description: Mensagem enviada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    get:
+      tags: [Mensagens]
+      operationId: listDirectChannelMessages
+      summary: Lista as mensagens de um canal privado
+      description: Somente os dois participantes do canal podem consultar o histórico.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DirectChannelId'
+      responses:
+        '200':
+          description: Mensagens encontradas em ordem cronológica
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -448,6 +474,65 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServerChannel'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /servers/{serverId}/channels/{channelId}/messages:
+    post:
+      tags: [Mensagens]
+      operationId: sendServerTextChannelMessage
+      summary: Envia uma mensagem em um canal de texto
+      description: Exige participação no servidor e rejeita canais de voz.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServerId'
+        - $ref: '#/components/parameters/ServerChannelId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageRequest'
+      responses:
+        '201':
+          description: Mensagem enviada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    get:
+      tags: [Mensagens]
+      operationId: listServerTextChannelMessages
+      summary: Lista as mensagens de um canal de texto
+      description: Exige participação no servidor e rejeita canais de voz.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServerId'
+        - $ref: '#/components/parameters/ServerChannelId'
+      responses:
+        '200':
+          description: Mensagens encontradas em ordem cronológica
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -565,7 +650,9 @@ paths:
         expiradas encerram a conexão com um frame `ERROR`.
 
         Contrato autenticado atual:
-        - `SEND` para `/app/chat`, com o corpo `MessageRequest`;
+        - `SEND` para `/app/direct-channels/{channelId}/messages` para uma mensagem privada;
+        - `SEND` para `/app/servers/{serverId}/channels/{channelId}/messages` para uma mensagem de servidor;
+        - ambos usam o corpo `MessageRequest`;
         - `SUBSCRIBE` em `/user/queue/messages` para receber `Message`;
         - os demais destinos de envio e assinatura são rejeitados.
 
@@ -574,7 +661,9 @@ paths:
       responses:
         '101':
           description: Protocolo atualizado para WebSocket.
-          x-stomp-send-destination: /app/chat
+          x-stomp-send-destinations:
+            - /app/direct-channels/{channelId}/messages
+            - /app/servers/{serverId}/channels/{channelId}/messages
           x-stomp-subscribe-destination: /user/queue/messages
           x-stomp-send-schema:
             $ref: '#/components/schemas/MessageRequest'
@@ -646,6 +735,14 @@ components:
       in: path
       required: true
       description: UUID do canal privado.
+      schema:
+        type: string
+        format: uuid
+    ServerChannelId:
+      name: channelId
+      in: path
+      required: true
+      description: UUID do canal pertencente ao servidor.
       schema:
         type: string
         format: uuid
@@ -779,44 +876,35 @@ components:
           format: uuid
     MessageRequest:
       type: object
-      required: [content, receiverId]
+      required: [content]
       properties:
         content:
           type: string
           example: Olá!
-        receiverId:
-          type: string
-          format: uuid
-          description: UUID do destinatário.
     Message:
       type: object
-      required: [id, content, senderId, senderName, senderEmail, receiverId, receiverEmail, timestamp]
+      required: [id, channelId, content, authorId, authorName, createdAt]
       properties:
         id:
           type: integer
           format: int64
+        channelId:
+          type: string
+          format: uuid
+          description: UUID do canal que contém a mensagem.
         content:
           type: string
           example: Olá!
-        senderId:
+        authorId:
           type: string
           format: uuid
-        senderName:
+        authorName:
           type: string
           example: Ana Silva
-        senderEmail:
-          type: string
-          format: email
-        receiverId:
-          type: string
-          format: uuid
-        receiverEmail:
-          type: string
-          format: email
-        timestamp:
+        createdAt:
           type: string
           format: date-time
-          description: Data e hora local em que a mensagem foi persistida.
+          description: Instante UTC em que a mensagem foi persistida.
     CreateDirectChannelRequest:
       type: object
       required: [participantId]

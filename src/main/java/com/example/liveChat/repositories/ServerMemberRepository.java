@@ -10,4 +10,6 @@ public interface ServerMemberRepository extends JpaRepository<ServerMember, Long
     List<ServerMember> findByUserIdOrderByJoinedAtDesc(String userId);
 
     Optional<ServerMember> findByServerIdAndUserId(String serverId, String userId);
+
+    List<ServerMember> findByServerId(String serverId);
 }

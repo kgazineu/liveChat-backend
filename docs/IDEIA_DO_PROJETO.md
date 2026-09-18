@@ -17,15 +17,17 @@ As funcionalidades atuais são:
 - cadastro, login, JWT de acesso e refresh token;
 - consulta e exclusão da própria conta;
 - solicitações de amizade e lista de amigos;
-- mensagens privadas persistidas entre dois usuários;
+- mensagens persistidas em canais privados 1:1 e em canais `TEXT` de servidor;
 - WebSocket nativo em `/ws`, com STOMP e autenticação por `Authorization: Bearer <JWT>` no frame `CONNECT`;
-- envio de mensagem para `/app/chat` e recebimento privado em `/user/queue/messages`.
+- envio STOMP para canais privados ou de servidor e recebimento em `/user/queue/messages` pelos participantes autorizados;
 - servidores com proprietário e membros;
 - canais de servidor dos tipos `TEXT` e `VOICE`;
 - convites direcionados a amigos aceitos, com aceite explícito do destinatário.
 - canais privados 1:1 permanentes, com criação idempotente, listagem e consulta limitada aos dois participantes.
 
-Ainda não há mensagens vinculadas a canais, presença de mídia ou chamadas de áudio, câmera e tela.
+Ainda não há presença de mídia ou chamadas de áudio, câmera e tela.
+
+As mensagens privadas que existiam antes dos canais 1:1 são migradas uma única vez na inicialização para o canal privado do respectivo par de usuários. A origem é mantida como referência interna de migração, evitando duplicação em reinicializações.
 
 ## Experiência desejada
 
@@ -218,6 +220,6 @@ As mensagens privadas existentes representam conversas diretas entre dois usuár
 
 ## Próximo passo sugerido
 
-Remodelar as mensagens privadas existentes para vinculá-las aos canais privados 1:1. Em seguida, implementar mensagens persistidas nos canais `TEXT` de servidor, sempre reutilizando as verificações de participação já estabelecidas.
+Iniciar o Marco 2 com a presença de mídia: adicionar Redis e modelar a sessão efêmera para entrar, sair e trocar de canais de voz ou privados. A primeira entrega deve publicar os eventos STOMP de presença e preservar o estado `reconnecting` por até 30 segundos.
 
 O fluxo de convite já é direcionado a um amigo aceito e exige aceite explícito, mas o backend ainda não emite um token ou URL de convite próprio. Esse é um refinamento separado para que o cliente possa compartilhar um link sem depender do identificador interno do convite.

@@ -1,18 +1,23 @@
 package com.example.liveChat.models;
 
-import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
 import java.time.LocalDateTime;
 
-
-@Entity @Table(name= "TB_MESSAGE")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor
-public class Message {
+@Entity
+@Table(name = "TB_MESSAGE")
+@Getter
+@NoArgsConstructor
+public class LegacyMessage {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -31,13 +36,10 @@ public class Message {
 
     private LocalDateTime timestamp;
 
-    private String room = "global";
-
-    public Message(User sender, User receiver, String content) {
+    public LegacyMessage(User sender, User receiver, String content, LocalDateTime timestamp) {
         this.sender = sender;
         this.receiver = receiver;
         this.content = content;
-        this.timestamp = LocalDateTime.now();
+        this.timestamp = timestamp;
     }
-
 }
