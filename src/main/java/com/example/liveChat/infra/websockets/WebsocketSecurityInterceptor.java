@@ -53,9 +53,15 @@ public class WebsocketSecurityInterceptor implements ChannelInterceptor {
             throw new AccessDeniedException("Authentication required");
         }
         if (command == null || command == StompCommand.UNSUBSCRIBE) return message;
-        if (command == StompCommand.SEND && "/app/chat".equals(accessor.getDestination())) return message;
+        if (command == StompCommand.SEND && isAllowedSendDestination(accessor.getDestination())) return message;
         if (command == StompCommand.SUBSCRIBE && "/user/queue/messages".equals(accessor.getDestination())) return message;
 
         throw new AccessDeniedException("STOMP destination or command not allowed");
+    }
+
+    private boolean isAllowedSendDestination(String destination) {
+        if (destination == null) return false;
+        return destination.matches("^/app/direct-channels/[0-9a-fA-F-]{36}/messages$")
+                || destination.matches("^/app/servers/[0-9a-fA-F-]{36}/channels/[0-9a-fA-F-]{36}/messages$");
     }
 }

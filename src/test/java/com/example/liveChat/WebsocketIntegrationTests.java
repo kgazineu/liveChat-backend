@@ -1,7 +1,17 @@
 package com.example.liveChat;
 
 import com.example.liveChat.infra.security.TokenService;
+import com.example.liveChat.models.ChannelType;
+import com.example.liveChat.models.DirectChannel;
+import com.example.liveChat.models.Server;
+import com.example.liveChat.models.ServerChannel;
+import com.example.liveChat.models.ServerMember;
+import com.example.liveChat.models.ServerRole;
 import com.example.liveChat.models.User;
+import com.example.liveChat.repositories.DirectChannelRepository;
+import com.example.liveChat.repositories.ServerChannelRepository;
+import com.example.liveChat.repositories.ServerMemberRepository;
+import com.example.liveChat.repositories.ServerRepository;
 import com.example.liveChat.repositories.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +45,10 @@ class WebsocketIntegrationTests {
     @LocalServerPort private int port;
     @Autowired private UserRepository users;
     @Autowired private TokenService tokenService;
+    @Autowired private DirectChannelRepository directChannels;
+    @Autowired private ServerRepository servers;
+    @Autowired private ServerMemberRepository members;
+    @Autowired private ServerChannelRepository channels;
     @Autowired private SimpUserRegistry userRegistry;
     @Autowired private SimpleBrokerMessageHandler broker;
 
@@ -59,20 +73,45 @@ class WebsocketIntegrationTests {
     }
 
     @Test
-    void authenticatedChatPersistsAndDeliversToSenderAndReceiver() throws Exception {
+    void directChannelMessagePersistsAndDeliversToBothParticipants() throws Exception {
         User sender = user();
         User receiver = user();
+        DirectChannel directChannel = directChannels.save(new DirectChannel(sender, receiver));
         try (Connection senderConnection = connect(); Connection receiverConnection = connect()) {
             authenticate(senderConnection, sender);
             authenticate(receiverConnection, receiver);
             subscribe(senderConnection, sender);
             subscribe(receiverConnection, receiver);
-            senderConnection.send("SEND\ndestination:/app/chat\ncontent-type:application/json\n\n"
-                    + "{\"content\":\"hello\",\"receiverId\":\"" + receiver.getId() + "\"}\0");
+            senderConnection.send("SEND\ndestination:/app/direct-channels/" + directChannel.getId() + "/messages\ncontent-type:application/json\n\n"
+                    + "{\"content\":\"hello\"}\0");
             for (Connection connection : new Connection[]{senderConnection, receiverConnection}) {
                 assertThat(connection.next()).startsWith("MESSAGE\n")
-                        .contains("\"content\":\"hello\"", "\"senderId\":\"" + sender.getId() + "\"",
-                                "\"receiverId\":\"" + receiver.getId() + "\"", "\"id\":");
+                        .contains("\"content\":\"hello\"", "\"authorId\":\"" + sender.getId() + "\"",
+                                "\"channelId\":\"" + directChannel.getId() + "\"", "\"id\":");
+            }
+        }
+    }
+
+    @Test
+    void serverTextChannelMessageDeliversToEveryMember() throws Exception {
+        User owner = user();
+        User member = user();
+        Server server = servers.save(new Server("Equipe", owner));
+        members.save(new ServerMember(server, owner, ServerRole.OWNER));
+        members.save(new ServerMember(server, member, ServerRole.MEMBER));
+        ServerChannel textChannel = channels.save(new ServerChannel(server, "geral", ChannelType.TEXT, 0));
+
+        try (Connection ownerConnection = connect(); Connection memberConnection = connect()) {
+            authenticate(ownerConnection, owner);
+            authenticate(memberConnection, member);
+            subscribe(ownerConnection, owner);
+            subscribe(memberConnection, member);
+            ownerConnection.send("SEND\ndestination:/app/servers/" + server.getId() + "/channels/" + textChannel.getId()
+                    + "/messages\ncontent-type:application/json\n\n{\"content\":\"mensagem do servidor\"}\0");
+            for (Connection connection : new Connection[]{ownerConnection, memberConnection}) {
+                assertThat(connection.next()).startsWith("MESSAGE\n")
+                        .contains("\"content\":\"mensagem do servidor\"", "\"authorId\":\"" + owner.getId() + "\"",
+                                "\"channelId\":\"" + textChannel.getId() + "\"", "\"id\":");
             }
         }
     }

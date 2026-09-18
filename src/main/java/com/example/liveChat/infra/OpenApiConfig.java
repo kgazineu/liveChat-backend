@@ -36,7 +36,7 @@ public class OpenApiConfig {
                 .tags(List.of(
                         new Tag().name("Usuários").description("Cadastro, autenticação e gerenciamento da conta."),
                         new Tag().name("Amizades").description("Solicitações e relacionamentos entre usuários."),
-                        new Tag().name("Mensagens").description("Histórico de mensagens privadas."),
+                        new Tag().name("Mensagens").description("Mensagens de canais privados e de texto em servidores."),
                         new Tag().name("Canais privados").description("Conversas privadas entre exatamente dois usuários."),
                         new Tag().name("Servidores").description("Servidores, membros, canais e convites."),
                         new Tag().name("WebSocket").description("Handshake e protocolo STOMP para mensagens em tempo real."),
@@ -81,9 +81,11 @@ public class OpenApiConfig {
                         encerram a conexão com um frame `ERROR`.
 
                         Contrato autenticado:
-                        - enviar mensagens: `SEND` para `/app/chat`, corpo JSON conforme o schema `MessageRequestDTO`;
+                        - enviar mensagem privada: `SEND` para `/app/direct-channels/{channelId}/messages`;
+                        - enviar mensagem de servidor: `SEND` para `/app/servers/{serverId}/channels/{channelId}/messages`;
+                        - os dois destinos recebem um corpo JSON conforme `MessageRequestDTO`;
                         - receber mensagens: `SUBSCRIBE` em `/user/queue/messages`;
-                        - o servidor envia o schema `MessageResponseDTO` ao remetente e ao destinatário;
+                        - o servidor envia `MessageResponseDTO` aos participantes autorizados;
                         - demais destinos de envio e assinatura são rejeitados.
 
                         O JWT é verificado no `CONNECT`. O endpoint usa WebSocket nativo, sem SockJS.

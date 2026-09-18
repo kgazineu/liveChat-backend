@@ -8,6 +8,7 @@ import com.example.liveChat.exceptions.ServerInviteNotFoundException;
 import com.example.liveChat.exceptions.InvalidRequestException;
 import com.example.liveChat.exceptions.ResourceConflictException;
 import com.example.liveChat.exceptions.DirectChannelNotFoundException;
+import com.example.liveChat.exceptions.ServerChannelNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -58,6 +59,12 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(DirectChannelNotFoundException.class)
     private ResponseEntity<RestErrorMessage> directChannelNotFoundHandler(DirectChannelNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new RestErrorMessage(HttpStatus.NOT_FOUND, exception.getMessage()));
+    }
+
+    @ExceptionHandler(ServerChannelNotFoundException.class)
+    private ResponseEntity<RestErrorMessage> serverChannelNotFoundHandler(ServerChannelNotFoundException exception) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(new RestErrorMessage(HttpStatus.NOT_FOUND, exception.getMessage()));
     }

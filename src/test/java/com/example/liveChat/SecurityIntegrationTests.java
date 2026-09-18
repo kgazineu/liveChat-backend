@@ -161,7 +161,9 @@ class SecurityIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.allOf(
                         org.hamcrest.Matchers.containsString("openapi: 3.0.3"),
-                        org.hamcrest.Matchers.containsString("/direct-channels:"))));
+                        org.hamcrest.Matchers.containsString("/direct-channels:"),
+                        org.hamcrest.Matchers.containsString("/direct-channels/{channelId}/messages:"),
+                        org.hamcrest.Matchers.containsString("/servers/{serverId}/channels/{channelId}/messages:"))));
         mvc.perform(get("/v3/api-docs/swagger-config"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.url").value("/openapi.yaml"));
