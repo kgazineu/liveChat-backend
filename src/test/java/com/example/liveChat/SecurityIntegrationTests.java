@@ -170,7 +170,8 @@ class SecurityIntegrationTests {
         mvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(get("/v3/api-docs/swagger-config"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.url").value("/openapi.yaml"));
         mvc.perform(get("/docs"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/swagger-ui/index.html"));
