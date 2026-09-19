@@ -75,11 +75,15 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      - name: Baixar configuração de deploy
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
       - name: Atualizar backend
         run: |
+          install -m 0644 compose.prod.yaml /opt/livechat-back/compose.prod.yaml
           cd /opt/livechat-back
-          docker compose pull app
-          docker compose up -d --wait --wait-timeout 180 app
-          docker compose ps
+          docker compose -f compose.prod.yaml pull app
+          docker compose -f compose.prod.yaml up -d --remove-orphans --wait --wait-timeout 180
+          docker compose -f compose.prod.yaml ps
           curl --fail --silent --show-error \
             http://127.0.0.1:8080/actuator/health
