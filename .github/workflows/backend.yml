@@ -80,8 +80,13 @@ jobs:
 
       - name: Atualizar backend
         run: |
-          install -m 0644 compose.prod.yaml /opt/livechat-back/compose.prod.yaml
+          candidate_compose=/opt/livechat-back/compose.prod.yaml.candidate
+          trap 'rm -f "$candidate_compose"' EXIT
+          install -m 0644 compose.prod.yaml "$candidate_compose"
           cd /opt/livechat-back
+          docker compose --env-file .env -f "$candidate_compose" config --quiet
+          mv "$candidate_compose" compose.prod.yaml
+          trap - EXIT
           docker compose -f compose.prod.yaml pull app
           docker compose -f compose.prod.yaml up -d --remove-orphans --wait --wait-timeout 180
           docker compose -f compose.prod.yaml ps
