@@ -14,6 +14,10 @@ import com.example.liveChat.repositories.ServerMemberRepository;
 import com.example.liveChat.repositories.ServerRepository;
 import com.example.liveChat.repositories.UserRepository;
 import com.example.liveChat.services.MediaPresenceService;
+import com.auth0.jwt.JWT;
+import com.auth0.jwt.algorithms.Algorithm;
+import com.auth0.jwt.interfaces.DecodedJWT;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,10 +28,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -60,15 +68,20 @@ class MediaPresenceControllerIntegrationTests {
         ServerChannel secondVoice = channel(server, "Estudo", ChannelType.VOICE, 1);
         ServerChannel text = channel(server, "texto", ChannelType.TEXT, 2);
 
-        mvc.perform(post(serverPath(server, firstVoice)).header("Authorization", bearer(owner)))
+        String joinBody = mvc.perform(post(serverPath(server, firstVoice)).header("Authorization", bearer(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("channelKind").value("SERVER_VOICE"))
                 .andExpect(jsonPath("status").value("ACTIVE"))
-                .andExpect(jsonPath("microphoneEnabled").value(true));
+                .andExpect(jsonPath("microphoneEnabled").value(true))
+                .andExpect(jsonPath("connection.url").value("ws://localhost:7880"))
+                .andExpect(jsonPath("connection.roomName").value("server-voice-" + firstVoice.getId()))
+                .andReturn().getResponse().getContentAsString();
+        assertLiveKitToken(joinBody, owner, "server-voice-" + firstVoice.getId());
 
         mvc.perform(get(serverPath(server, firstVoice)).header("Authorization", bearer(member)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].userId").value(owner.getId()));
+                .andExpect(jsonPath("$[0].userId").value(owner.getId()))
+                .andExpect(jsonPath("$[0].connection").doesNotExist());
 
         mvc.perform(patch(serverPath(server, firstVoice) + "/me").header("Authorization", bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -109,9 +122,12 @@ class MediaPresenceControllerIntegrationTests {
         DirectChannel channel = directChannels.save(new DirectChannel(first, second));
         String basePath = "/direct-channels/" + channel.getId() + "/media-sessions";
 
-        mvc.perform(post(basePath).header("Authorization", bearer(first)))
+        String joinBody = mvc.perform(post(basePath).header("Authorization", bearer(first)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("channelKind").value("DIRECT"));
+                .andExpect(jsonPath("channelKind").value("DIRECT"))
+                .andExpect(jsonPath("connection.roomName").value("direct-" + channel.getId()))
+                .andReturn().getResponse().getContentAsString();
+        assertLiveKitToken(joinBody, first, "direct-" + channel.getId());
         mvc.perform(get(basePath).header("Authorization", bearer(second)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].userId").value(first.getId()));
@@ -184,6 +200,27 @@ class MediaPresenceControllerIntegrationTests {
 
     private String serverPath(Server server, ServerChannel channel) {
         return "/servers/" + server.getId() + "/channels/" + channel.getId() + "/media-sessions";
+    }
+
+    private void assertLiveKitToken(String responseBody, User user, String roomName) throws Exception {
+        JsonNode response = mapper.readTree(responseBody);
+        String token = response.path("connection").path("token").asText();
+        Instant expiresAt = Instant.parse(response.path("connection").path("expiresAt").asText());
+        DecodedJWT decoded = JWT.require(Algorithm.HMAC256("test-livekit-secret-at-least-32-characters-long"))
+                .withIssuer("test-livekit-key")
+                .build()
+                .verify(token);
+
+        assertEquals(user.getId(), decoded.getSubject());
+        assertEquals(user.getName(), decoded.getClaim("name").asString());
+        Map<String, Object> videoGrant = decoded.getClaim("video").asMap();
+        assertEquals(roomName, videoGrant.get("room"));
+        assertEquals(true, videoGrant.get("roomJoin"));
+        assertEquals(true, videoGrant.get("canPublish"));
+        assertEquals(true, videoGrant.get("canSubscribe"));
+        assertEquals(false, videoGrant.get("canPublishData"));
+        assertTrue(expiresAt.isAfter(Instant.now().plusSeconds(250)));
+        assertFalse(expiresAt.isAfter(Instant.now().plusSeconds(310)));
     }
 
     private String bearer(User user) {

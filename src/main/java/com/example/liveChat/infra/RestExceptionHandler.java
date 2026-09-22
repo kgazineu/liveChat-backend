@@ -9,6 +9,7 @@ import com.example.liveChat.exceptions.InvalidRequestException;
 import com.example.liveChat.exceptions.ResourceConflictException;
 import com.example.liveChat.exceptions.DirectChannelNotFoundException;
 import com.example.liveChat.exceptions.ServerChannelNotFoundException;
+import com.example.liveChat.exceptions.MediaInfrastructureUnavailableException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -79,6 +80,13 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     private ResponseEntity<RestErrorMessage> invalidRequestHandler(InvalidRequestException exception) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new RestErrorMessage(HttpStatus.BAD_REQUEST, exception.getMessage()));
+    }
+
+    @ExceptionHandler(MediaInfrastructureUnavailableException.class)
+    private ResponseEntity<RestErrorMessage> mediaInfrastructureUnavailableHandler(
+            MediaInfrastructureUnavailableException exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new RestErrorMessage(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)
