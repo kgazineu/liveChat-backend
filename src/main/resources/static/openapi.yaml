@@ -345,17 +345,19 @@ paths:
         - $ref: '#/components/parameters/DirectChannelId'
       responses:
         '200':
-          description: Presença de mídia ativa
+          description: Presença de mídia ativa e credencial de entrada no LiveKit
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MediaSession'
+                $ref: '#/components/schemas/MediaSessionJoinResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     get:
       tags: [Presença de mídia]
       operationId: listDirectChannelMediaSessions
@@ -396,6 +398,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /direct-channels/{channelId}/media-sessions/me:
     patch:
       tags: [Presença de mídia]
@@ -616,11 +620,11 @@ paths:
         - $ref: '#/components/parameters/ServerChannelId'
       responses:
         '200':
-          description: Presença de mídia ativa
+          description: Presença de mídia ativa e credencial de entrada no LiveKit
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MediaSession'
+                $ref: '#/components/schemas/MediaSessionJoinResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -631,6 +635,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     get:
       tags: [Presença de mídia]
       operationId: listServerVoiceChannelMediaSessions
@@ -677,6 +683,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /servers/{serverId}/channels/{channelId}/media-sessions/me:
     patch:
       tags: [Presença de mídia]
@@ -991,6 +999,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    ServiceUnavailable:
+      description: LiveKit indisponível para criar a sala, emitir a credencial ou desconectar o participante.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
   schemas:
     UserRegisterRequest:
       type: object
@@ -1162,6 +1176,35 @@ components:
         lastSeenAt:
           type: string
           format: date-time
+    MediaSessionJoinResponse:
+      allOf:
+        - $ref: '#/components/schemas/MediaSession'
+        - type: object
+          required: [connection]
+          properties:
+            connection:
+              $ref: '#/components/schemas/LiveKitConnection'
+    LiveKitConnection:
+      type: object
+      required: [url, roomName, token, expiresAt]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: URL pública de sinalização do LiveKit que deve ser usada pelo cliente.
+          example: ws://localhost:7880
+        roomName:
+          type: string
+          description: Nome interno gerado pelo backend, com prefixo `server-voice-` ou `direct-`.
+          pattern: '^(server-voice-|direct-).+'
+          example: server-voice-2f333a44-2f44-4f56-a555-9d5f16933d80
+        token:
+          type: string
+          description: Token LiveKit válido por cinco minutos, com o UUID do usuário como identidade, restrito a entrar, publicar e assinar nesta sala, sem uso de data channel.
+        expiresAt:
+          type: string
+          format: date-time
+          description: Instante UTC de expiração do token.
     MediaPresenceEvent:
       type: object
       required: [type, participant]

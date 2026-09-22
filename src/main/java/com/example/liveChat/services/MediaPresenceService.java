@@ -5,6 +5,7 @@ import com.example.liveChat.dto.MediaSessionResponseDTO;
 import com.example.liveChat.dto.MediaStateRequestDTO;
 import com.example.liveChat.exceptions.DirectChannelNotFoundException;
 import com.example.liveChat.exceptions.InvalidRequestException;
+import com.example.liveChat.exceptions.MediaInfrastructureUnavailableException;
 import com.example.liveChat.exceptions.ResourceConflictException;
 import com.example.liveChat.exceptions.ServerChannelNotFoundException;
 import com.example.liveChat.exceptions.ServerNotFoundException;
@@ -20,6 +21,8 @@ import com.example.liveChat.repositories.ServerChannelRepository;
 import com.example.liveChat.repositories.ServerMemberRepository;
 import com.example.liveChat.repositories.ServerRepository;
 import com.example.liveChat.repositories.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -30,6 +33,7 @@ import java.util.UUID;
 
 @Service
 public class MediaPresenceService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MediaPresenceService.class);
     private static final String PRESENCE_DESTINATION = "/queue/media-presence";
     private static final String PARTICIPANT_JOINED = "media.participant.joined";
     private static final String PARTICIPANT_LEFT = "media.participant.left";
@@ -43,12 +47,14 @@ public class MediaPresenceService {
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final MediaPresenceProperties properties;
+    private final LiveKitMediaService liveKitMediaService;
 
     public MediaPresenceService(MediaSessionStore mediaSessionStore, ServerRepository serverRepository,
                                 ServerMemberRepository serverMemberRepository,
                                 ServerChannelRepository serverChannelRepository,
                                 DirectChannelRepository directChannelRepository, UserRepository userRepository,
-                                SimpMessagingTemplate messagingTemplate, MediaPresenceProperties properties) {
+                                SimpMessagingTemplate messagingTemplate, MediaPresenceProperties properties,
+                                LiveKitMediaService liveKitMediaService) {
         this.mediaSessionStore = mediaSessionStore;
         this.serverRepository = serverRepository;
         this.serverMemberRepository = serverMemberRepository;
@@ -57,11 +63,16 @@ public class MediaPresenceService {
         this.userRepository = userRepository;
         this.messagingTemplate = messagingTemplate;
         this.properties = properties;
+        this.liveKitMediaService = liveKitMediaService;
     }
 
-    public synchronized MediaSessionResponseDTO joinServerVoiceChannel(String serverId, String channelId, User user) {
+    public MediaSessionResponseDTO joinServerVoiceChannel(String serverId, String channelId, User user) {
         serverVoiceChannel(serverId, channelId, user);
-        return join(MediaSession.active(MediaChannelKind.SERVER_VOICE, serverId, channelId, user));
+        var connection = liveKitMediaService.prepareConnection(MediaChannelKind.SERVER_VOICE, channelId, user);
+        synchronized (this) {
+            return join(MediaSession.active(MediaChannelKind.SERVER_VOICE, serverId, channelId, user))
+                    .withConnection(connection);
+        }
     }
 
     public synchronized List<MediaSessionResponseDTO> listServerVoiceChannelSessions(String serverId, String channelId,
@@ -81,9 +92,13 @@ public class MediaPresenceService {
         return updateState(MediaChannelKind.SERVER_VOICE, channelId, request, user);
     }
 
-    public synchronized MediaSessionResponseDTO joinDirectChannel(String channelId, User user) {
+    public MediaSessionResponseDTO joinDirectChannel(String channelId, User user) {
         directChannel(channelId, user);
-        return join(MediaSession.active(MediaChannelKind.DIRECT, null, channelId, user));
+        var connection = liveKitMediaService.prepareConnection(MediaChannelKind.DIRECT, channelId, user);
+        synchronized (this) {
+            return join(MediaSession.active(MediaChannelKind.DIRECT, null, channelId, user))
+                    .withConnection(connection);
+        }
     }
 
     public synchronized List<MediaSessionResponseDTO> listDirectChannelSessions(String channelId, User user) {
@@ -116,7 +131,14 @@ public class MediaPresenceService {
     @EventListener
     public synchronized void expireReconnectingSession(MediaSessionExpiryEvent event) {
         mediaSessionStore.removeExpired(event.userId(), event.reconnectionId())
-                .ifPresent(session -> publish(PARTICIPANT_LEFT, session));
+                .ifPresent(session -> {
+                    try {
+                        liveKitMediaService.disconnect(session);
+                    } catch (MediaInfrastructureUnavailableException exception) {
+                        LOGGER.warn("Could not disconnect expired media session for user {}", session.userId(), exception);
+                    }
+                    publish(PARTICIPANT_LEFT, session);
+                });
     }
 
     private MediaSessionResponseDTO join(MediaSession requestedSession) {
@@ -137,6 +159,7 @@ public class MediaPresenceService {
             throw new ResourceConflictException("The voice channel participant limit has been reached");
         }
         if (previous != null) {
+            liveKitMediaService.disconnect(previous);
             mediaSessionStore.delete(previous);
             publish(PARTICIPANT_LEFT, previous);
         }
@@ -155,6 +178,7 @@ public class MediaPresenceService {
         mediaSessionStore.findByUserId(user.getId())
                 .filter(session -> session.belongsTo(channelKind, channelId))
                 .ifPresent(session -> {
+                    liveKitMediaService.disconnect(session);
                     mediaSessionStore.delete(session);
                     publish(PARTICIPANT_LEFT, session);
                 });

@@ -10,7 +10,7 @@ O produto não precisa reproduzir todos os recursos do Discord. A intenção ini
 
 ## O que já existe
 
-O projeto é uma aplicação Java 21 com Spring Boot 3.5, PostgreSQL, JPA, Spring Security, JWT e WebSocket/STOMP. Docker Compose sobe a aplicação e o banco.
+O projeto é uma aplicação Java 21 com Spring Boot 3.5, PostgreSQL, JPA, Spring Security, JWT e WebSocket/STOMP. Docker Compose sobe a aplicação, PostgreSQL, Redis e, no ambiente local, LiveKit.
 
 As funcionalidades atuais são:
 
@@ -26,9 +26,10 @@ As funcionalidades atuais são:
 - canais privados 1:1 permanentes, com criação idempotente, listagem e consulta limitada aos dois participantes.
 - presença efêmera de mídia em canais `VOICE` de servidor e em canais privados 1:1, com entrada, saída, troca atômica de canal, participantes atuais e estado de microfone, câmera e tela; cada canal de voz de servidor aceita até cinco participantes simultâneos;
 - eventos STOMP de presença em `/user/queue/media-presence` para os participantes autorizados;
-- Redis para manter sessões de presença e preservar o estado `reconnecting` por 30 segundos após uma desconexão inesperada.
+- Redis para manter sessões de presença e preservar o estado `reconnecting` por 30 segundos após uma desconexão inesperada;
+- primeira fatia do LiveKit: servidor auto-hospedado no ambiente local e emissão, ao entrar em uma sessão, da URL pública, sala interna e credencial de acesso com expiração de cinco minutos.
 
-Ainda não há transmissão de áudio, câmera ou tela: a sessão de presença prepara a autorização e a experiência para a conexão WebRTC com o LiveKit.
+Ainda não há transmissão de áudio, câmera ou tela pelo cliente: a infraestrutura e as credenciais de entrada no LiveKit estão disponíveis, mas o cliente ainda precisa conectar-se à sala, publicar suas faixas e consumir as faixas remotas.
 
 As mensagens privadas que existiam antes dos canais 1:1 são migradas uma única vez na inicialização para o canal privado do respectivo par de usuários. A origem é mantida como referência interna de migração, evitando duplicação em reinicializações.
 
@@ -50,6 +51,7 @@ Na primeira versão, as permissões podem ser simples: proprietário e membro. P
 | Tema | Decisão |
 | --- | --- |
 | SFU | Usar **LiveKit auto-hospedado**. O servidor é open source sob licença Apache 2.0 e atende áudio, câmera, tela, salas e credenciais de acesso. Não haverá custo de licença ou de serviço gerenciado. |
+| Salas e credenciais | Nomes de sala são internos e usam os prefixos `server-voice-` e `direct-`. O token expira em cinco minutos, usa o UUID do usuário como identidade e permite entrar, publicar e assinar somente a sala autorizada, sem data channel. As credenciais aparecem apenas na resposta de entrada; listas e eventos continuam expondo somente a sessão de mídia. |
 | Custo de mídia | O software será gratuito, mas a operação em produção exigirá hospedagem, IP público, domínio/TLS e consumo de banda. Em desenvolvimento, LiveKit pode rodar localmente sem custo. |
 | Entrada no servidor | Um membro convida diretamente um amigo com amizade aceita. O destinatário lista o convite e confirma a ação em “Aceitar convite”. Apenas essa confirmação adiciona a pessoa ao servidor. |
 | Canal de mídia ativo | Cada usuário pode participar de somente um canal de voz por vez. Ao entrar em outro canal, o sistema sai do anterior de forma atômica. |
@@ -134,16 +136,16 @@ Entrar em um canal de voz será uma operação autenticada do backend, não apen
 
 1. o cliente pede para entrar no canal;
 2. o backend verifica JWT, servidor, membro e permissões;
-3. o backend cria ou atualiza a sessão de mídia e emite uma credencial de curta duração para a sala correspondente ao canal;
-4. o cliente usa essa credencial para conectar-se à SFU por WebRTC;
+3. o backend cria ou atualiza a sessão de mídia e emite uma credencial válida por cinco minutos para a sala interna correspondente ao canal;
+4. a resposta de entrada inclui `connection` com URL pública, nome da sala, token e instante de expiração; o cliente usa esses dados para conectar-se à SFU por WebRTC;
 5. o backend notifica a presença pelo WebSocket;
 6. ao sair de forma voluntária, a sessão é removida e o evento é publicado;
 7. em uma queda inesperada, a sessão recebe um TTL de 30 segundos no Redis e o participante fica no estado `reconnecting`;
 8. se o cliente voltar ao mesmo canal nesse prazo, o backend reativa a sessão; após o TTL, publica a saída definitiva.
 
-O backend deve sempre conferir a participação no servidor antes de expor um canal, emitir uma credencial de mídia ou publicar eventos de presença. A SFU deve receber permissões que permitam publicar e assinar apenas a sala daquele canal.
+O backend deve sempre conferir a participação no servidor antes de expor um canal, emitir uma credencial de mídia ou publicar eventos de presença. A credencial usa o UUID do usuário como identidade e concede entrada, publicação e assinatura apenas na sala daquele canal, sem permissão de data channel.
 
-Para um canal privado 1:1, a mesma regra se aplica aos seus dois participantes: o backend só emite a credencial da sala de mídia e entrega mensagens quando o usuário autenticado pertence àquela conversa. A sala do LiveKit deve ter um identificador diferente do usado por qualquer canal de servidor.
+Para um canal privado 1:1, a mesma regra se aplica aos seus dois participantes: o backend só emite a credencial da sala de mídia e entrega mensagens quando o usuário autenticado pertence àquela conversa. Salas de canais de servidor usam o prefixo interno `server-voice-`; salas privadas usam `direct-`, sem permitir que o cliente escolha o nome.
 
 ## Modelo inicial de dados
 
@@ -197,17 +199,27 @@ As mensagens privadas existentes representam conversas diretas entre dois usuár
 - registrar a desconexão inesperada como `reconnecting` e preservar a sessão por 30 segundos no Redis;
 - remover a sessão e publicar a saída quando o TTL expirar.
 
-### Marco 3 — áudio, câmera e tela por WebRTC
+### Marco 3 — áudio, câmera e tela por WebRTC (primeira fatia implementada)
 
-- subir e configurar o LiveKit auto-hospedado;
-- criar a sala de mídia associada ao canal de voz;
-- criar a sala de mídia exclusiva para cada canal privado 1:1 quando uma chamada for iniciada;
-- emitir token de acesso de curta duração após a autorização no backend;
-- conectar o cliente à sala, publicar microfone e receber as faixas remotas;
-- publicar e interromper a câmera;
-- compartilhar e interromper o compartilhamento de tela ou janela;
+Implementado nesta primeira fatia:
+
+- subir e configurar o LiveKit auto-hospedado para desenvolvimento local;
+- associar salas internas aos canais de voz de servidor e aos canais privados 1:1;
+- emitir, após a autorização no backend, token de acesso com duração de cinco minutos e permissões de entrada, publicação e assinatura, sem data channel;
+- devolver a conexão somente na resposta de entrada da sessão, preservando listas e eventos sem credenciais;
+- solicitar ao LiveKit a remoção do participante ao sair ou trocar de canal; na expiração da reconexão, a remoção é feita em melhor esforço para não manter presença obsoleta.
+
+Ainda falta:
+
+- conectar o cliente à sala, publicar o microfone e consumir as faixas remotas;
+- publicar e interromper câmera e compartilhamento de tela ou janela;
 - suportar silenciar e reativar o microfone;
-- validar a chamada com 2 e com 5 participantes simultâneos.
+- validar chamadas com 2 e com 5 participantes simultâneos;
+- provisionar a infraestrutura de produção, incluindo domínio/TLS, IP público, portas de mídia e TURN para redes restritivas.
+
+No LiveKit auto-hospedado, remover um participante não revoga um token já emitido. O cliente deve descartar a credencial ao sair ou trocar de canal; o backend reduz a janela de reutilização mantendo o token com duração de cinco minutos. Uma revogação mais forte exigirá uma estratégia adicional na evolução pós-MVP.
+
+O Compose de produção exige `LIVEKIT_API_URL`, `LIVEKIT_CLIENT_URL`, `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET` no ambiente de deploy. O arquivo `.env.example` registra essas novas pré-condições sem armazenar segredos reais.
 
 ## Critérios de qualidade do MVP
 
@@ -223,6 +235,6 @@ As mensagens privadas existentes representam conversas diretas entre dois usuár
 
 ## Próximo passo sugerido
 
-Iniciar o Marco 3 com a infraestrutura do LiveKit auto-hospedado e a emissão de credenciais de acesso de curta duração. A primeira entrega deve criar a sala de mídia correspondente ao canal autorizado — de voz do servidor ou privado 1:1 — e devolver a credencial ao cliente sem permitir que ele escolha livremente a sala.
+Integrar o cliente ao LiveKit para usar a credencial de entrada já emitida, publicar o microfone e consumir as faixas remotas. Depois, completar câmera, compartilhamento de tela e mute, validar chamadas com 2 e 5 participantes e planejar separadamente a infraestrutura de produção e TURN.
 
 O fluxo de convite já é direcionado a um amigo aceito e exige aceite explícito, mas o backend ainda não emite um token ou URL de convite próprio. Esse é um refinamento separado para que o cliente possa compartilhar um link sem depender do identificador interno do convite.
