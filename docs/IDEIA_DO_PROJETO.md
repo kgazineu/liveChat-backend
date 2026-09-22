@@ -221,6 +221,59 @@ No LiveKit auto-hospedado, remover um participante não revoga um token já emit
 
 O Compose de produção exige `LIVEKIT_API_URL`, `LIVEKIT_CLIENT_URL`, `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET` no ambiente de deploy. O arquivo `.env.example` registra essas novas pré-condições sem armazenar segredos reais.
 
+## O que ainda falta para concluir o MVP
+
+Esta seção consolida as pendências do produto inteiro. A prioridade é terminar as garantias do backend e da infraestrutura de mídia antes de considerar o MVP concluído. Itens como cargos avançados, moderação, gravação e chamadas com mais de cinco participantes continuam fora do escopo inicial.
+
+### Backend — obrigatório
+
+- [ ] **Sincronizar o estado real do LiveKit com a presença da aplicação.** Criar um endpoint de webhook do LiveKit, validar a assinatura dos eventos e processá-los de forma idempotente. Eventos de participante conectado, desconectado e remoção da sala devem confirmar ou encerrar a sessão correspondente no Redis, mesmo quando o STOMP continuar conectado ou o navegador cair de forma incompleta.
+- [ ] **Sincronizar as faixas publicadas com o estado de mídia.** Eventos de publicação, remoção e mute de faixas devem atualizar microfone, câmera e tela no backend. O `PATCH` atual pode continuar oferecendo resposta otimista ao cliente, mas não deve ser a única fonte de verdade sobre uma mídia realmente publicada no LiveKit.
+- [ ] **Tratar a transição entre presença autorizada e conexão WebRTC.** Hoje a entrada REST cria presença e credencial antes de o participante efetivamente aparecer no LiveKit. É necessário definir e implementar a transição `connecting` → `active`, seu timeout e a limpeza de entradas que receberam token, mas nunca concluíram a conexão com a SFU.
+- [ ] **Concluir o encerramento confiável de mídia.** Saída voluntária e troca de canal já solicitam a remoção do participante no LiveKit; ainda falta adicionar retentativa ou reconciliação quando a SFU estiver temporariamente indisponível durante uma expiração assíncrona.
+- [ ] **Definir proteção contra reutilização de credencial após a saída.** No LiveKit auto-hospedado, remover um participante não revoga o token emitido. Para o MVP, deve-se decidir se o TTL curto e o descarte obrigatório pelo cliente são suficientes ou se será adotada uma proteção adicional, como identidade de conexão descartável, sala com entrada automática desabilitada ou outra estratégia de admissão.
+- [ ] **Garantir atomicidade distribuída da regra “um canal por usuário”.** O bloqueio atual protege uma única instância da aplicação. Antes de executar múltiplas réplicas do backend, a troca de canal e o limite de cinco participantes devem usar operação atômica no Redis, lock distribuído ou script Lua.
+- [ ] **Emitir convite compartilhável para servidor.** O fluxo direcionado e o aceite explícito já existem, mas ainda falta um token ou URL de convite que não exponha nem dependa diretamente do identificador interno do registro.
+- [ ] **Completar os eventos de domínio propostos.** Publicar e documentar ao menos `server.channel.created` e `server.member.joined`, com destinatários autorizados, caso a interface de servidores precise refletir essas mudanças sem recarregar ou consultar repetidamente a API.
+- [ ] **Adicionar paginação aos históricos de mensagens.** As consultas de canais privados e canais de texto precisam de cursor ou paginação por data/identificador para não carregar todo o histórico conforme as conversas crescerem.
+- [ ] **Aplicar limites e proteção contra abuso.** Limitar tamanho e frequência de mensagens, tentativas de autenticação, criação de convites e emissão de credenciais de mídia. Tokens LiveKit e segredos nunca devem aparecer em logs.
+- [ ] **Expor saúde operacional da mídia.** Incluir uma verificação de prontidão da comunicação backend → LiveKit sem expor detalhes ou credenciais no endpoint público de saúde.
+- [ ] **Cobrir a integração com uma instância real do LiveKit.** Além dos testes unitários com cliente simulado, criar testes de integração que provisionem uma sala real, validem entrada e remoção de participante, indisponibilidade e os webhooks assinados.
+
+### Infraestrutura de backend e mídia — obrigatório para produção
+
+- [ ] Provisionar o LiveKit fora do modo `--dev`, com chaves fortes, configuração versionada e acesso administrativo restrito ao backend.
+- [ ] Configurar domínio e TLS para a sinalização (`wss://`), IP público e portas UDP/TCP necessárias ao WebRTC.
+- [ ] Configurar STUN/TURN para redes restritivas e validar conexão por UDP, fallback TCP e TURN/TLS.
+- [ ] Hospedar a SFU na região mais próxima dos usuários esperados e confirmar a meta de RTT cliente ↔ SFU.
+- [ ] Definir persistência e alta disponibilidade do Redis usado pela presença e, se houver múltiplos nós LiveKit, configurar o Redis compartilhado da SFU.
+- [ ] Configurar métricas, logs e alertas para falhas de sala, participantes, perda de pacotes, uso de CPU, memória e banda.
+- [ ] Atualizar o ambiente de deploy com `LIVEKIT_API_URL`, `LIVEKIT_CLIENT_URL`, `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET` antes de publicar uma versão que exija essas variáveis.
+
+### Frontend — obrigatório
+
+- [ ] Consumir `connection.url` e `connection.token` retornados pela entrada da sessão e conectar-se à sala pelo SDK cliente do LiveKit.
+- [ ] Publicar o microfone e reproduzir as faixas remotas com tratamento de autoplay e permissão do navegador.
+- [ ] Implementar mute/unmute, ligar/desligar câmera e iniciar/interromper compartilhamento de tela ou janela.
+- [ ] Permitir seleção e troca de microfone, câmera e dispositivo de saída quando o navegador oferecer suporte.
+- [ ] Exibir estados de conexão, `connecting`, `active` e `reconnecting`, além de erros acionáveis para permissão negada, dispositivo ausente e falha de rede.
+- [ ] Reconectar à mesma sala dentro da janela de 30 segundos sem duplicar o participante visualmente.
+- [ ] Desconectar do LiveKit e descartar a credencial anterior ao sair ou trocar de canal.
+- [ ] Renderizar participantes e indicadores de microfone, câmera, tela e fala ativa a partir do estado confirmado pelo LiveKit/backend.
+- [ ] Completar as telas e fluxos de autenticação, amizades, servidores, canais, convites, mensagens e canais privados 1:1, caso ainda não estejam implementados no cliente.
+- [ ] Coletar estatísticas WebRTC no cliente: RTT, jitter, perda de pacotes, bitrate e atraso do jitter buffer.
+
+### Validação necessária para encerrar o MVP
+
+- [ ] Validar chamada privada 1:1 com áudio, câmera e compartilhamento de tela nos navegadores suportados.
+- [ ] Validar canal de servidor com dois e com cinco participantes simultâneos.
+- [ ] Confirmar que não membros e não participantes nunca recebem presença nem credencial de uma sala.
+- [ ] Confirmar entrada, saída, troca de canal, queda abrupta, reconexão dentro de 30 segundos e expiração após esse prazo.
+- [ ] Medir as metas de RTT, áudio e vídeo definidas neste documento em rede saudável e registrar o ambiente dos testes.
+- [ ] Executar testes em redes com UDP bloqueado para confirmar fallback TCP/TURN.
+- [ ] Validar que reinício do backend, Redis ou LiveKit não deixa presença permanente, participante fantasma ou sala inacessível.
+- [ ] Revisar OpenAPI, eventos STOMP, webhook LiveKit, variáveis de ambiente e procedimento operacional de deploy.
+
 ## Critérios de qualidade do MVP
 
 - nenhuma pessoa sem vínculo com o servidor consegue obter credencial ou presença de um canal daquele servidor;
@@ -235,6 +288,8 @@ O Compose de produção exige `LIVEKIT_API_URL`, `LIVEKIT_CLIENT_URL`, `LIVEKIT_
 
 ## Próximo passo sugerido
 
-Integrar o cliente ao LiveKit para usar a credencial de entrada já emitida, publicar o microfone e consumir as faixas remotas. Depois, completar câmera, compartilhamento de tela e mute, validar chamadas com 2 e 5 participantes e planejar separadamente a infraestrutura de produção e TURN.
+Priorizar no backend a recepção segura dos webhooks do LiveKit e a reconciliação entre participantes/faixas reais da SFU e as sessões mantidas no Redis. Essa etapa fecha a principal lacuna de consistência: a presença não deve depender apenas do pedido REST, do estado informado pelo cliente ou da conexão STOMP.
 
-O fluxo de convite já é direcionado a um amigo aceito e exige aceite explícito, mas o backend ainda não emite um token ou URL de convite próprio. Esse é um refinamento separado para que o cliente possa compartilhar um link sem depender do identificador interno do convite.
+Em paralelo ou imediatamente depois, integrar o cliente ao LiveKit para publicar o microfone e consumir faixas remotas. Com esse caminho vertical funcionando, completar câmera, compartilhamento de tela, mute e reconexão; depois executar as validações com 2 e 5 participantes e preparar domínio/TLS, portas de mídia e TURN para produção.
+
+O token ou URL compartilhável de convite de servidor permanece como a próxima pendência funcional do backend fora do fluxo de mídia.
