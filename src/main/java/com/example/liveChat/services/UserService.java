@@ -9,6 +9,7 @@ import com.example.liveChat.exceptions.UserNotFoundException;
 import com.example.liveChat.models.User;
 import com.example.liveChat.repositories.UserRepository;
 import com.example.liveChat.repositories.RefreshTokenRepository;
+import com.example.liveChat.repositories.PasswordResetTokenRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
@@ -36,6 +37,12 @@ public class UserService {
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
 
+    @Autowired
+    private PasswordResetTokenRepository passwordResetTokenRepository;
+
+    @Autowired
+    private PasswordResetPasswordPolicy passwordPolicy;
+
     public User findUserByIdOrThrow(String userId){
         return userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found "));
@@ -48,6 +55,7 @@ public class UserService {
 
     @Transactional
     public User register(UserRegisterDTO data){
+        passwordPolicy.validate(data.password());
         if (userRepository.findByEmail(data.email()).isPresent()) {
             throw new UserAlreadyExistsException("A user with email " + data.email() + " already exists");
         }
@@ -80,6 +88,7 @@ public class UserService {
         if(!userRepository.existsById(userId)) {
             throw new UserNotFoundException("User not found");
         }
+        passwordResetTokenRepository.deleteByUserId(userId);
         refreshTokenRepository.deleteByUserId(userId);
         userRepository.deleteById(userId);
     }

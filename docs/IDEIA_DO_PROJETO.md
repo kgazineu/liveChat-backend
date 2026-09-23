@@ -15,14 +15,16 @@ O projeto é uma aplicação Java 21 com Spring Boot 3.5, PostgreSQL, JPA, Sprin
 As funcionalidades atuais são:
 
 - cadastro, login, JWT de acesso e refresh token;
+- recuperação de senha por e-mail com token opaco de uso único, expiração configurável, invalidação dos refresh tokens e rejeição dos JWTs anteriores à troca;
 - consulta e exclusão da própria conta;
-- solicitações de amizade e lista de amigos;
+- solicitações de amizade e lista de amigos, com eventos privados STOMP de criação, aceite e rejeição;
 - mensagens persistidas em canais privados 1:1 e em canais `TEXT` de servidor;
 - WebSocket nativo em `/ws`, com STOMP e autenticação por `Authorization: Bearer <JWT>` no frame `CONNECT`;
 - envio STOMP para canais privados ou de servidor e recebimento em `/user/queue/messages` pelos participantes autorizados;
 - servidores com proprietário e membros;
 - canais de servidor dos tipos `TEXT` e `VOICE`;
-- convites direcionados a amigos aceitos, com aceite explícito do destinatário.
+- convites direcionados a amigos aceitos, com aceite explícito do destinatário e eventos privados STOMP de criação e aceite;
+- listagem autorizada dos membros de cada servidor e evento `server.member.joined` após a entrada;
 - canais privados 1:1 permanentes, com criação idempotente, listagem e consulta limitada aos dois participantes.
 - presença efêmera de mídia em canais `VOICE` de servidor e em canais privados 1:1, com entrada, saída, troca atômica de canal, participantes atuais e estado de microfone, câmera e tela; cada canal de voz de servidor aceita até cinco participantes simultâneos;
 - eventos STOMP de presença em `/user/queue/media-presence` para os participantes autorizados;
@@ -129,8 +131,10 @@ O endpoint `/ws` poderá continuar como o canal STOMP de controle. Após validar
 - `media.participant.joined`
 - `media.participant.left`
 - `media.participant.updated` — microfone, câmera ou tela ativados/desativados;
-- `server.channel.created`
-- `server.member.joined`
+- `friendship.request.created`, `friendship.request.accepted` e `friendship.request.rejected` — implementados em `/user/queue/friendships`;
+- `server.invite.created` e `server.invite.accepted` — implementados em `/user/queue/server-invites`;
+- `server.channel.created`;
+- `server.member.joined` — implementado em `/user/queue/server-members`
 
 Entrar em um canal de voz será uma operação autenticada do backend, não apenas uma conexão direta do cliente à SFU. O fluxo esperado é:
 
@@ -234,9 +238,10 @@ Esta seção consolida as pendências do produto inteiro. A prioridade é termin
 - [ ] **Definir proteção contra reutilização de credencial após a saída.** No LiveKit auto-hospedado, remover um participante não revoga o token emitido. Para o MVP, deve-se decidir se o TTL curto e o descarte obrigatório pelo cliente são suficientes ou se será adotada uma proteção adicional, como identidade de conexão descartável, sala com entrada automática desabilitada ou outra estratégia de admissão.
 - [ ] **Garantir atomicidade distribuída da regra “um canal por usuário”.** O bloqueio atual protege uma única instância da aplicação. Antes de executar múltiplas réplicas do backend, a troca de canal e o limite de cinco participantes devem usar operação atômica no Redis, lock distribuído ou script Lua.
 - [ ] **Emitir convite compartilhável para servidor.** O fluxo direcionado e o aceite explícito já existem, mas ainda falta um token ou URL de convite que não exponha nem dependa diretamente do identificador interno do registro.
-- [ ] **Completar os eventos de domínio propostos.** Publicar e documentar ao menos `server.channel.created` e `server.member.joined`, com destinatários autorizados, caso a interface de servidores precise refletir essas mudanças sem recarregar ou consultar repetidamente a API.
+- [ ] **Completar os eventos de domínio propostos.** `server.member.joined`, solicitações de amizade e convites direcionados já são publicados em filas privadas após o commit. Ainda falta `server.channel.created` e, no frontend, assinar `/user/queue/friendships`, `/user/queue/server-invites` e `/user/queue/server-members`, mantendo as consultas REST como reconciliação após conexão ou queda.
 - [ ] **Adicionar paginação aos históricos de mensagens.** As consultas de canais privados e canais de texto precisam de cursor ou paginação por data/identificador para não carregar todo o histórico conforme as conversas crescerem.
-- [ ] **Aplicar limites e proteção contra abuso.** Limitar tamanho e frequência de mensagens, tentativas de autenticação, criação de convites e emissão de credenciais de mídia. Tokens LiveKit e segredos nunca devem aparecer em logs.
+- [ ] **Aplicar limites e proteção contra abuso.** Limitar tamanho e frequência de mensagens, login, solicitação de recuperação de senha, criação de convites e emissão de credenciais de mídia. Tokens de recuperação, tokens LiveKit e segredos nunca devem aparecer em logs.
+- [x] **Implementar recuperação de senha no backend.** A solicitação não revela se a conta existe; o link é enviado por SMTP, o token opaco é armazenado somente como hash SHA-256 e pode ser usado uma vez. A confirmação troca a senha, remove refresh tokens e invalida JWTs anteriores inclusive em novos `CONNECT` STOMP.
 - [ ] **Expor saúde operacional da mídia.** Incluir uma verificação de prontidão da comunicação backend → LiveKit sem expor detalhes ou credenciais no endpoint público de saúde.
 - [ ] **Cobrir a integração com uma instância real do LiveKit.** Além dos testes unitários com cliente simulado, criar testes de integração que provisionem uma sala real, validem entrada e remoção de participante, indisponibilidade e os webhooks assinados.
 
@@ -248,6 +253,7 @@ Esta seção consolida as pendências do produto inteiro. A prioridade é termin
 - [ ] Hospedar a SFU na região mais próxima dos usuários esperados e confirmar a meta de RTT cliente ↔ SFU.
 - [ ] Definir persistência e alta disponibilidade do Redis usado pela presença e, se houver múltiplos nós LiveKit, configurar o Redis compartilhado da SFU.
 - [ ] Configurar métricas, logs e alertas para falhas de sala, participantes, perda de pacotes, uso de CPU, memória e banda.
+- [ ] Configurar um provedor SMTP de produção e as variáveis `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `MAIL_FROM` e `FRONTEND_PASSWORD_RESET_URL`. O ambiente local usa Mailpit nas portas 1025 e 8025.
 - [ ] Atualizar o ambiente de deploy com `LIVEKIT_API_URL`, `LIVEKIT_CLIENT_URL`, `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET` antes de publicar uma versão que exija essas variáveis.
 
 ### Frontend — obrigatório
@@ -261,6 +267,8 @@ Esta seção consolida as pendências do produto inteiro. A prioridade é termin
 - [ ] Desconectar do LiveKit e descartar a credencial anterior ao sair ou trocar de canal.
 - [ ] Renderizar participantes e indicadores de microfone, câmera, tela e fala ativa a partir do estado confirmado pelo LiveKit/backend.
 - [ ] Completar as telas e fluxos de autenticação, amizades, servidores, canais, convites, mensagens e canais privados 1:1, caso ainda não estejam implementados no cliente.
+- [ ] Implementar as telas “esqueci minha senha” e “definir nova senha”, usando os endpoints `/users/password-reset/request` e `/users/password-reset/confirm`.
+- [ ] Assinar as filas privadas de amizades, convites e membros logo após o `CONNECT`, atualizar a UI pelos eventos recebidos e refazer os snapshots REST após reconexão; eventos STOMP são efêmeros e não substituem as consultas.
 - [ ] Coletar estatísticas WebRTC no cliente: RTT, jitter, perda de pacotes, bitrate e atraso do jitter buffer.
 
 ### Validação necessária para encerrar o MVP

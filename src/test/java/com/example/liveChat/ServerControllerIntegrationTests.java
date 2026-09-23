@@ -92,6 +92,8 @@ class ServerControllerIntegrationTests {
                 .andExpect(status().isForbidden());
         mvc.perform(get("/servers/" + serverId + "/channels").header("Authorization", bearer(outsider)))
                 .andExpect(status().isForbidden());
+        mvc.perform(get("/servers/" + serverId + "/members").header("Authorization", bearer(outsider)))
+                .andExpect(status().isForbidden());
         mvc.perform(post("/servers/" + serverId + "/channels").header("Authorization", bearer(outsider))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(Map.of("name", "vazamento", "type", "TEXT"))))
@@ -145,6 +147,40 @@ class ServerControllerIntegrationTests {
                 .andExpect(jsonPath("role").value("MEMBER"));
         assertThat(members.findByServerIdAndUserId(serverId, friend.getId())).isPresent()
                 .get().extracting(member -> member.getRole().name()).isEqualTo("MEMBER");
+    }
+
+    @Test
+    void membersAreListedDeterministicallyWithTheirMembershipData() throws Exception {
+        User owner = user();
+        User friend = user();
+        makeFriends(owner, friend);
+        String serverId = createServer(owner, "Equipe");
+
+        String inviteResponse = mvc.perform(post("/servers/" + serverId + "/invites")
+                        .header("Authorization", bearer(owner))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of("friendId", friend.getId()))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long inviteId = mapper.readTree(inviteResponse).get("id").asLong();
+        mvc.perform(patch("/servers/invites/" + inviteId + "/accept").header("Authorization", bearer(friend)))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/servers/" + serverId + "/members").header("Authorization", bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].userId").value(owner.getId()))
+                .andExpect(jsonPath("$[0].userName").value(owner.getName()))
+                .andExpect(jsonPath("$[0].userEmail").value(owner.getEmail()))
+                .andExpect(jsonPath("$[0].role").value("OWNER"))
+                .andExpect(jsonPath("$[0].joinedAt").exists())
+                .andExpect(jsonPath("$[1].userId").value(friend.getId()))
+                .andExpect(jsonPath("$[1].userName").value(friend.getName()))
+                .andExpect(jsonPath("$[1].userEmail").value(friend.getEmail()))
+                .andExpect(jsonPath("$[1].role").value("MEMBER"))
+                .andExpect(jsonPath("$[1].joinedAt").exists())
+                .andExpect(jsonPath("$[2]").doesNotExist());
+        mvc.perform(get("/servers/" + serverId + "/members"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

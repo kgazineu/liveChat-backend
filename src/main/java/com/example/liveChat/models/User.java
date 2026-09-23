@@ -22,6 +22,9 @@ public class User implements UserDetails {
     private String email;
     private String password;
 
+    @Column(nullable = false, columnDefinition = "bigint default 0")
+    private long credentialsVersion = 0L;
+
     public User() {}
 
     public User(String name, String email, String password) {

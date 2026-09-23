@@ -1,13 +1,18 @@
 package com.example.liveChat.services;
 
+import com.example.liveChat.dto.FriendshipEventDTO;
+import com.example.liveChat.exceptions.InvalidRequestException;
+import com.example.liveChat.exceptions.ResourceConflictException;
+import com.example.liveChat.exceptions.UserNotFoundException;
 import com.example.liveChat.models.Friendship;
 import com.example.liveChat.models.FriendshipStatus;
 import com.example.liveChat.models.User;
 import com.example.liveChat.repositories.FriendshipRepository;
 import com.example.liveChat.repositories.UserRepository;
-import jakarta.transaction.Transactional;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -15,20 +20,30 @@ import java.util.Optional;
 
 @Service
 public class FriendshipService {
-    @Autowired
-    private FriendshipRepository friendshipRepository;
-    @Autowired
-    private UserRepository userRepository;
+    private final FriendshipRepository friendshipRepository;
+    private final UserRepository userRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
+    public FriendshipService(FriendshipRepository friendshipRepository, UserRepository userRepository,
+                             ApplicationEventPublisher eventPublisher) {
+        this.friendshipRepository = friendshipRepository;
+        this.userRepository = userRepository;
+        this.eventPublisher = eventPublisher;
+    }
 
     @Transactional
     public void sendFriendRequest(String requesterId, String addresseeId) {
-        if(requesterId.equals(addresseeId)) {
-            throw new RuntimeException("User cant send a request to himself");
+        if (addresseeId == null || addresseeId.isBlank()) {
+            throw new InvalidRequestException("Target user id is required");
+        }
+        if (requesterId.equals(addresseeId)) {
+            throw new InvalidRequestException("User cannot send a friend request to themselves");
         }
 
-        User requester = userRepository.findById(requesterId).orElseThrow(() -> new RuntimeException("User not found"));
-        User addressee = userRepository.findById(addresseeId).orElseThrow(() -> new RuntimeException("User not found"));
+        User requester = userRepository.findById(requesterId)
+                .orElseThrow(() -> new UserNotFoundException("Requester not found"));
+        User addressee = userRepository.findById(addresseeId)
+                .orElseThrow(() -> new UserNotFoundException("Target user not found"));
 
         Optional<Friendship> existingRelationship = friendshipRepository.findRelationship(requester, addressee);
 
@@ -36,7 +51,7 @@ public class FriendshipService {
             Friendship friendship = existingRelationship.get();
 
             if (friendship.getStatus() == FriendshipStatus.ACCEPTED || friendship.getStatus() == FriendshipStatus.PENDING) {
-                throw new RuntimeException("Friend request cannot be sent to an existing relation.");
+                throw new ResourceConflictException("Friend request cannot be sent to an existing relationship");
             }
 
             if (friendship.getStatus() == FriendshipStatus.REJECTED) {
@@ -46,47 +61,48 @@ public class FriendshipService {
                 friendship.setRequester(requester);
                 friendship.setAddressee(addressee);
 
-                friendshipRepository.save(friendship);
+                Friendship savedFriendship = friendshipRepository.save(friendship);
+                publish("friendship.request.created", savedFriendship, List.of(addressee.getEmail()));
                 return;
             }
         }
 
-        Friendship newFriendship = new Friendship(requester, addressee);
-        friendshipRepository.save(newFriendship);
+        Friendship newFriendship = friendshipRepository.save(new Friendship(requester, addressee));
+        publish("friendship.request.created", newFriendship, List.of(addressee.getEmail()));
     }
 
     @Transactional
     public void rejectFriendRequest(Long friendshipId, String userIdDoLogado) {
-        Friendship friendship = friendshipRepository.findById(friendshipId)
-                .orElseThrow(() -> new RuntimeException("Friend request not fount"));
+        Friendship friendship = getFriendship(friendshipId);
 
         if (!friendship.getAddressee().getId().equals(userIdDoLogado)) {
-            throw new RuntimeException("User not authorized to reject this friend request");
+            throw new AccessDeniedException("Only the addressee can reject the friend request");
         }
-
-        if (friendship.getStatus() == FriendshipStatus.ACCEPTED) {
-            throw new RuntimeException("Users are already friends");
-        }
+        requirePending(friendship);
 
         friendship.setStatus(FriendshipStatus.REJECTED);
-        friendshipRepository.save(friendship);
+        Friendship savedFriendship = friendshipRepository.save(friendship);
+        publishToBoth("friendship.request.rejected", savedFriendship);
     }
 
     @Transactional
     public void acceptFriendRequest(Long friendshipId, String loggedUserId) {
-        Friendship friendship = friendshipRepository.findById(friendshipId)
-                .orElseThrow(() -> new RuntimeException("Friendship not found"));
+        Friendship friendship = getFriendship(friendshipId);
 
-        if(!friendship.getAddressee().getId().equals(loggedUserId)) {
-            throw new RuntimeException("Only the addressee can accept the friend request");
+        if (!friendship.getAddressee().getId().equals(loggedUserId)) {
+            throw new AccessDeniedException("Only the addressee can accept the friend request");
         }
+        requirePending(friendship);
 
         friendship.setStatus(FriendshipStatus.ACCEPTED);
-        friendshipRepository.save(friendship);
+        Friendship savedFriendship = friendshipRepository.save(friendship);
+        publishToBoth("friendship.request.accepted", savedFriendship);
     }
 
+    @Transactional(readOnly = true)
     public List<User> getUserFriends(String userId) {
-        User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
         List<Friendship> friendships = friendshipRepository.findAllFriends(user);
 
         return friendships.stream()
@@ -94,9 +110,31 @@ public class FriendshipService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     public List<Friendship> getPendingRequests(String userId) {
-        User user = userRepository.findById(userId).orElseThrow(() -> new RuntimeException("User not found"));
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
         return friendshipRepository.findByAddresseeAndStatus(user, FriendshipStatus.PENDING);
+    }
+
+    private Friendship getFriendship(Long friendshipId) {
+        return friendshipRepository.findById(friendshipId)
+                .orElseThrow(() -> new InvalidRequestException("Friend request not found"));
+    }
+
+    private void requirePending(Friendship friendship) {
+        if (friendship.getStatus() != FriendshipStatus.PENDING) {
+            throw new ResourceConflictException("Friend request is no longer pending");
+        }
+    }
+
+    private void publishToBoth(String type, Friendship friendship) {
+        publish(type, friendship, List.of(friendship.getRequester().getEmail(), friendship.getAddressee().getEmail()));
+    }
+
+    private void publish(String type, Friendship friendship, List<String> recipients) {
+        eventPublisher.publishEvent(SocialNotificationEvent.friendships(recipients,
+                FriendshipEventDTO.from(type, friendship)));
     }
 
 }

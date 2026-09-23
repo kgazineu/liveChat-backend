@@ -4,6 +4,7 @@ import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.exceptions.JWTCreationException;
 import com.auth0.jwt.exceptions.JWTVerificationException;
+import com.auth0.jwt.interfaces.DecodedJWT;
 import com.example.liveChat.dto.UserLoginResponseDTO;
 import com.example.liveChat.models.User;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,6 +31,7 @@ public class TokenService {
             String token = JWT.create()
                     .withIssuer("liveChat")
                     .withSubject(user.getEmail())
+                    .withClaim("cv", user.getCredentialsVersion())
                     .withJWTId(UUID.randomUUID().toString())
                     .withExpiresAt(expirationDate)
                     .sign(algorithm);
@@ -40,17 +42,28 @@ public class TokenService {
     }
 
     public String validateToken(String token){
-        if (token == null || token.isBlank()) return "";
+        DecodedJWT decodedToken = verify(token);
+        return decodedToken == null || decodedToken.getSubject() == null ? "" : decodedToken.getSubject();
+    }
+
+    public boolean isTokenValidForUser(String token, User user) {
+        if (user == null) return false;
+        DecodedJWT decodedToken = verify(token);
+        if (decodedToken == null || !user.getEmail().equals(decodedToken.getSubject())) return false;
+        Long credentialsVersion = decodedToken.getClaim("cv").asLong();
+        return credentialsVersion != null && credentialsVersion == user.getCredentialsVersion();
+    }
+
+    private DecodedJWT verify(String token) {
+        if (token == null || token.isBlank()) return null;
         try {
             Algorithm algorithm = Algorithm.HMAC256(secret);
-            String subject = JWT.require(algorithm)
+            return JWT.require(algorithm)
                     .withIssuer("liveChat")
                     .build()
-                    .verify(token)
-                    .getSubject();
-            return subject == null ? "" : subject;
+                    .verify(token);
         } catch (JWTVerificationException exception){
-            return "";
+            return null;
         }
     }
 

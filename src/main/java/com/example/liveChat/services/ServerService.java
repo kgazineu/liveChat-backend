@@ -4,7 +4,10 @@ import com.example.liveChat.dto.ChannelResponseDTO;
 import com.example.liveChat.dto.CreateChannelRequestDTO;
 import com.example.liveChat.dto.CreateServerInviteRequestDTO;
 import com.example.liveChat.dto.CreateServerRequestDTO;
+import com.example.liveChat.dto.ServerInviteEventDTO;
 import com.example.liveChat.dto.ServerInviteResponseDTO;
+import com.example.liveChat.dto.ServerMemberEventDTO;
+import com.example.liveChat.dto.ServerMemberResponseDTO;
 import com.example.liveChat.dto.ServerResponseDTO;
 import com.example.liveChat.exceptions.InvalidRequestException;
 import com.example.liveChat.exceptions.ResourceConflictException;
@@ -23,6 +26,7 @@ import com.example.liveChat.repositories.ServerInviteRepository;
 import com.example.liveChat.repositories.ServerMemberRepository;
 import com.example.liveChat.repositories.ServerRepository;
 import com.example.liveChat.repositories.UserRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,16 +43,19 @@ public class ServerService {
     private final ServerInviteRepository serverInviteRepository;
     private final FriendshipRepository friendshipRepository;
     private final UserRepository userRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ServerService(ServerRepository serverRepository, ServerMemberRepository serverMemberRepository,
                          ServerChannelRepository serverChannelRepository, ServerInviteRepository serverInviteRepository,
-                         FriendshipRepository friendshipRepository, UserRepository userRepository) {
+                         FriendshipRepository friendshipRepository, UserRepository userRepository,
+                         ApplicationEventPublisher eventPublisher) {
         this.serverRepository = serverRepository;
         this.serverMemberRepository = serverMemberRepository;
         this.serverChannelRepository = serverChannelRepository;
         this.serverInviteRepository = serverInviteRepository;
         this.friendshipRepository = friendshipRepository;
         this.userRepository = userRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -70,6 +77,15 @@ public class ServerService {
     public ServerResponseDTO get(String serverId, User user) {
         Server server = getServer(serverId);
         return ServerResponseDTO.from(server, getMember(serverId, user));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ServerMemberResponseDTO> listMembers(String serverId, User user) {
+        getServer(serverId);
+        getMember(serverId, user);
+        return serverMemberRepository.findByServerIdOrderByJoinedAtAscIdAsc(serverId).stream()
+                .map(ServerMemberResponseDTO::from)
+                .toList();
     }
 
     @Transactional
@@ -120,7 +136,10 @@ public class ServerService {
             throw new ResourceConflictException("A server invite already exists for this user");
         }
 
-        return ServerInviteResponseDTO.from(serverInviteRepository.save(new ServerInvite(server, inviter, invitee)));
+        ServerInvite invite = serverInviteRepository.save(new ServerInvite(server, inviter, invitee));
+        eventPublisher.publishEvent(SocialNotificationEvent.serverInvites(List.of(invitee.getEmail()),
+                ServerInviteEventDTO.from("server.invite.created", invite)));
+        return ServerInviteResponseDTO.from(invite);
     }
 
     @Transactional(readOnly = true)
@@ -145,6 +164,15 @@ public class ServerService {
 
         ServerMember member = serverMemberRepository.save(new ServerMember(invite.getServer(), user, ServerRole.MEMBER));
         invite.accept();
+
+        eventPublisher.publishEvent(SocialNotificationEvent.serverInvites(
+                List.of(invite.getInvitee().getEmail(), invite.getInviter().getEmail()),
+                ServerInviteEventDTO.from("server.invite.accepted", invite)));
+        List<String> memberEmails = serverMemberRepository.findByServerIdOrderByJoinedAtAscIdAsc(serverId).stream()
+                .map(serverMember -> serverMember.getUser().getEmail())
+                .toList();
+        eventPublisher.publishEvent(SocialNotificationEvent.serverMembers(memberEmails,
+                new ServerMemberEventDTO("server.member.joined", serverId, ServerMemberResponseDTO.from(member))));
         return ServerResponseDTO.from(invite.getServer(), member);
     }
 

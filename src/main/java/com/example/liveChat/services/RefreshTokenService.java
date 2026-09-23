@@ -37,6 +37,11 @@ public class RefreshTokenService {
     }
 
     @Transactional
+    public void revokeAllForUser(String userId) {
+        refreshTokenRepository.deleteByUserId(userId);
+    }
+
+    @Transactional
     public UserLoginResponseDTO refresh(String rawToken) {
         if (rawToken == null || !rawToken.matches("[A-Za-z0-9_-]{43}")) {
             throw new BadCredentialsException("Invalid refresh token");

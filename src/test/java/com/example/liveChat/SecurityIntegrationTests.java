@@ -140,6 +140,22 @@ class SecurityIntegrationTests {
     }
 
     @Test
+    void accessTokenCarriesAndEnforcesCredentialsVersion() throws Exception {
+        User user = user();
+        String token = tokenService.generateToken(user).token();
+        assertThat(JWT.decode(token).getClaim("cv").asLong()).isEqualTo(0L);
+        assertThat(tokenService.isTokenValidForUser(token, user)).isTrue();
+
+        user.setCredentialsVersion(1);
+        users.saveAndFlush(user);
+        assertThat(tokenService.isTokenValidForUser(token, user)).isFalse();
+        mvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/users/me").header("Authorization", "Bearer " + tokenService.generateToken(user).token()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void invalidLoginReturnsUnauthorized() throws Exception {
         User user = user();
         for (String email : List.of(user.getEmail(), "missing@example.test")) {

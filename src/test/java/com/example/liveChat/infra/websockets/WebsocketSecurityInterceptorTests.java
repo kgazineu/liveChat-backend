@@ -60,17 +60,35 @@ class WebsocketSecurityInterceptorTests {
         var accessor = StompHeaderAccessor.create(StompCommand.CONNECT);
         accessor.setNativeHeader("Authorization", "Bearer token");
         when(tokenService.validateToken("token")).thenReturn("user@example.test");
-        when(users.findByEmail("user@example.test"))
-                .thenReturn(Optional.of(new User("User", "user@example.test", "hash")));
+        User user = new User("User", "user@example.test", "hash");
+        when(users.findByEmail("user@example.test")).thenReturn(Optional.of(user));
+        when(tokenService.isTokenValidForUser("token", user)).thenReturn(true);
         interceptor.preSend(message(accessor), null);
         assertThat(accessor.getUser().getName()).isEqualTo("user@example.test");
+    }
+
+    @Test
+    void connectRejectsTokenFromBeforePasswordReset() {
+        var accessor = StompHeaderAccessor.create(StompCommand.CONNECT);
+        accessor.setNativeHeader("Authorization", "Bearer stale-token");
+        User user = new User("User", "user@example.test", "hash");
+        user.setCredentialsVersion(1);
+        when(tokenService.validateToken("stale-token")).thenReturn(user.getEmail());
+        when(users.findByEmail(user.getEmail())).thenReturn(Optional.of(user));
+        when(tokenService.isTokenValidForUser("stale-token", user)).thenReturn(false);
+
+        assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
+                .isInstanceOf(BadCredentialsException.class);
     }
 
     @ParameterizedTest
     @CsvSource({
             "SEND,/app/direct-channels/550e8400-e29b-41d4-a716-446655440000/messages",
             "SEND,/app/servers/550e8400-e29b-41d4-a716-446655440000/channels/6ba7b810-9dad-41d1-80b4-00c04fd430c8/messages",
-            "SUBSCRIBE,/user/queue/messages"
+            "SUBSCRIBE,/user/queue/messages",
+            "SUBSCRIBE,/user/queue/friendships",
+            "SUBSCRIBE,/user/queue/server-invites",
+            "SUBSCRIBE,/user/queue/server-members"
     })
     void authenticatedClientCanUseMessageDestinations(StompCommand command, String destination) {
         var accessor = authenticated(command, destination);
@@ -82,6 +100,8 @@ class WebsocketSecurityInterceptorTests {
     @CsvSource({"SEND,/queue/messages", "SEND,/user/queue/messages", "SEND,/app/other", "SEND,/app/chat",
             "SEND,/app/direct-channels/not-a-uuid/messages", "SEND,/app/direct-channels/550e8400-e29b-41d4-a716-446655440000/other",
             "SUBSCRIBE,/queue/messages", "SUBSCRIBE,/queue/messages-user123", "SUBSCRIBE,/queue/**",
+            "SUBSCRIBE,/queue/friendships", "SUBSCRIBE,/user/queue/friendships/other",
+            "SUBSCRIBE,/user/queue/server-invites-user123", "SUBSCRIBE,/user/queue/server-members/other",
             "SUBSCRIBE,/user/other/queue/messages", "SUBSCRIBE,/app/chat"})
     void authenticatedClientCannotBypassChatRouting(StompCommand command, String destination) {
         var accessor = authenticated(command, destination);

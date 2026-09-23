@@ -1,5 +1,6 @@
 package com.example.liveChat.infra.security;
 
+import com.example.liveChat.models.User;
 import com.example.liveChat.services.UserService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -8,7 +9,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
+
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -21,7 +22,7 @@ public class SecurityFilter extends OncePerRequestFilter {
     @Autowired
     TokenService tokenService;
     @Autowired
-    UserService userRepository;
+    UserService userService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
@@ -31,13 +32,13 @@ public class SecurityFilter extends OncePerRequestFilter {
             String email = tokenService.validateToken(token);
 
             if (email != null && !email.isBlank()) {
-                UserDetails user = null;
+                User user = null;
                 try {
-                    user = (UserDetails) userRepository.loadUserByUsername(email);
+                    user = userService.loadUserByUsername(email);
                 } catch (UsernameNotFoundException ex) {
                     logger.debug("User not found for email " + email);
                 }
-                if (user != null) {
+                if (user != null && tokenService.isTokenValidForUser(token, user)) {
                     var authentication = new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
                     SecurityContextHolder.getContext().setAuthentication(authentication);
                 }

@@ -5,9 +5,12 @@ import com.example.liveChat.dto.UserLoginResponseDTO;
 import com.example.liveChat.dto.UserRegisterDTO;
 import com.example.liveChat.dto.UserResponseDTO;
 import com.example.liveChat.dto.RefreshTokenRequestDTO;
+import com.example.liveChat.dto.PasswordResetConfirmDTO;
+import com.example.liveChat.dto.PasswordResetRequestDTO;
 import com.example.liveChat.models.User;
 import com.example.liveChat.services.UserService;
 import com.example.liveChat.services.RefreshTokenService;
+import com.example.liveChat.services.PasswordResetService;
 import com.example.liveChat.infra.RestErrorMessage;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -37,6 +40,9 @@ public class UserController {
 
     @Autowired
     private RefreshTokenService refreshTokenService;
+
+    @Autowired
+    private PasswordResetService passwordResetService;
 
     @PostMapping("/register")
     @Operation(summary = "Cadastra um usuário", description = "Cria uma conta e armazena a senha com BCrypt. Não inicia uma sessão automaticamente.")
@@ -71,6 +77,28 @@ public class UserController {
     })
     public ResponseEntity<UserLoginResponseDTO> refresh(@RequestBody RefreshTokenRequestDTO body) {
         return ResponseEntity.ok(refreshTokenService.refresh(body.refreshToken()));
+    }
+
+    @PostMapping("/password-reset/request")
+    @Operation(summary = "Solicita recuperação de senha",
+            description = "Sempre responde 202 para não revelar se o e-mail está cadastrado.")
+    @ApiResponse(responseCode = "202", description = "Solicitação recebida")
+    public ResponseEntity<Void> requestPasswordReset(@RequestBody(required = false) PasswordResetRequestDTO body) {
+        passwordResetService.request(body == null ? null : body.email());
+        return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/password-reset/confirm")
+    @Operation(summary = "Confirma recuperação de senha",
+            description = "Consome o token enviado por e-mail, troca a senha e invalida as credenciais anteriores.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Senha alterada"),
+            @ApiResponse(responseCode = "400", description = "Token inválido, expirado ou já utilizado, ou senha fora da política",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<Void> confirmPasswordReset(@RequestBody(required = false) PasswordResetConfirmDTO body) {
+        passwordResetService.confirm(body == null ? null : body.token(), body == null ? null : body.password());
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping

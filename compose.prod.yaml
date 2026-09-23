@@ -30,6 +30,15 @@ services:
       SPRING_DATA_REDIS_URL: ${REDIS_URL:?defina REDIS_URL no arquivo .env}
       SPRING_DOCKER_COMPOSE_ENABLED: "false"
       JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no arquivo .env}
+      SMTP_HOST: ${SMTP_HOST:?defina SMTP_HOST no arquivo .env}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:?defina SMTP_USERNAME no arquivo .env}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?defina SMTP_PASSWORD no arquivo .env}
+      SMTP_AUTH: ${SMTP_AUTH:-true}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      MAIL_FROM: ${MAIL_FROM:?defina MAIL_FROM no arquivo .env}
+      FRONTEND_PASSWORD_RESET_URL: ${FRONTEND_PASSWORD_RESET_URL:?defina FRONTEND_PASSWORD_RESET_URL no arquivo .env}
+      PASSWORD_RESET_TOKEN_TTL: ${PASSWORD_RESET_TOKEN_TTL:-15m}
       LIVEKIT_API_URL: ${LIVEKIT_API_URL:?defina LIVEKIT_API_URL no arquivo .env}
       LIVEKIT_CLIENT_URL: ${LIVEKIT_CLIENT_URL:?defina LIVEKIT_CLIENT_URL no arquivo .env}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?defina LIVEKIT_API_KEY no arquivo .env}
