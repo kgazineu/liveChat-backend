@@ -95,7 +95,7 @@ public class MessageService {
     }
 
     private User getUser(String email) {
-        return userRepository.findByEmail(email)
+        return userRepository.findActiveByEmailIgnoreCase(email)
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
     }
 

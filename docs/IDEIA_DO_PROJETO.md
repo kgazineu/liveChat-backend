@@ -16,7 +16,7 @@ As funcionalidades atuais são:
 
 - cadastro, login, JWT de acesso e refresh token;
 - recuperação e troca autenticada de senha por e-mail com token opaco de uso único, expiração configurável, invalidação dos refresh tokens e rejeição dos JWTs anteriores à troca;
-- consulta, atualização confirmada e exclusão da própria conta; alterações de nome ou e-mail ficam pendentes até a confirmação enviada ao endereço anterior;
+- consulta, atualização confirmada e soft delete da própria conta; alterações de nome ou e-mail ficam pendentes até a confirmação enviada ao endereço anterior; ao desativar a conta, os dados pessoais são anonimizados e o histórico de mensagens é preservado;
 - solicitações de amizade e lista de amigos, com eventos privados STOMP de criação, aceite e rejeição;
 - mensagens persistidas em canais privados 1:1 e em canais `TEXT` de servidor;
 - WebSocket nativo em `/ws`, com STOMP e autenticação por `Authorization: Bearer <JWT>` no frame `CONNECT`;
@@ -61,6 +61,7 @@ Na primeira versão, as permissões podem ser simples: proprietário e membro. P
 | Redis | Será incluído junto com a camada de mídia. Ele manterá sessões de mídia e reconexão com TTL de 30 segundos e poderá servir ao modo distribuído do LiveKit quando necessário. |
 | Canais privados 1:1 | São conversas permanentes entre exatamente dois usuários, independentes de um servidor. Elas permitem mensagens, áudio, câmera e compartilhamento de tela em tempo real. Somente os dois participantes podem acessá-las. |
 | Canais de texto | Fazem parte do modelo de servidor desde o início. As mensagens privadas atuais serão remodeladas como mensagens de canal privado 1:1; mensagens de grupos serão vinculadas a canais de texto do servidor. |
+| Exclusão de conta | Usar soft delete: anonimizar nome, e-mail e credenciais, remover vínculos sociais ativos e memberships, mas preservar mensagens e canais privados como histórico. Servidores passam ao membro ativo mais antigo; sem sucessor, o servidor e suas dependências são removidos. |
 
 ## Conceitos de domínio
 
@@ -243,6 +244,7 @@ Esta seção consolida as pendências do produto inteiro. A prioridade é termin
 - [ ] **Aplicar limites e proteção contra abuso.** Limitar tamanho e frequência de mensagens, login, solicitação de recuperação de senha, criação de convites e emissão de credenciais de mídia. Tokens de recuperação, tokens LiveKit e segredos nunca devem aparecer em logs.
 - [x] **Implementar recuperação e troca autenticada de senha no backend.** A solicitação pública não revela se a conta existe; usuários autenticados também podem solicitar a troca sem informar o próprio e-mail. O token opaco é armazenado somente como hash SHA-256 e pode ser usado uma vez. A confirmação troca a senha, remove refresh tokens e invalida JWTs anteriores inclusive em novos `CONNECT` STOMP.
 - [x] **Implementar atualização segura de nome e e-mail.** `PUT /users/me` cria uma alteração pendente e envia um token de uso único ao e-mail atual. Somente a confirmação aplica os dados; a troca de e-mail invalida as credenciais anteriores e conflitos são revalidados no momento da aplicação.
+- [x] **Implementar soft delete seguro de conta.** A conta é anonimizada e desativada, tokens e vínculos sociais ativos são removidos, sessões de mídia são encerradas após o commit e o histórico permanece associado ao tombstone “Usuário excluído”. Propriedade de servidores é transferida ao membro ativo mais antigo; servidores sem sucessor são removidos.
 - [ ] **Expor saúde operacional da mídia.** Incluir uma verificação de prontidão da comunicação backend → LiveKit sem expor detalhes ou credenciais no endpoint público de saúde.
 - [ ] **Cobrir a integração com uma instância real do LiveKit.** Além dos testes unitários com cliente simulado, criar testes de integração que provisionem uma sala real, validem entrada e remoção de participante, indisponibilidade e os webhooks assinados.
 

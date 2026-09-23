@@ -9,4 +9,6 @@ public interface ServerChannelRepository extends JpaRepository<ServerChannel, St
     List<ServerChannel> findByServerIdOrderByPositionAscIdAsc(String serverId);
 
     long countByServerId(String serverId);
+
+    void deleteByServerId(String serverId);
 }

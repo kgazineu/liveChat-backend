@@ -27,6 +27,8 @@ import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.List;
 import java.util.UUID;
@@ -119,13 +121,34 @@ public class MediaPresenceService {
 
     /** Chamada pelo evento de desconexão do STOMP. A expiração é processada pelo armazenamento de sessões. */
     public synchronized void markReconnectingAfterDisconnect(String userEmail) {
-        userRepository.findByEmail(userEmail).ifPresent(user -> mediaSessionStore.findByUserId(user.getId())
+        userRepository.findActiveByEmailIgnoreCase(userEmail).ifPresent(user -> mediaSessionStore.findByUserId(user.getId())
                 .filter(session -> session.status() == MediaSessionStatus.ACTIVE)
                 .ifPresent(session -> {
                     MediaSession reconnecting = session.reconnecting(UUID.randomUUID().toString());
                     mediaSessionStore.markReconnecting(reconnecting);
                     publish(PARTICIPANT_UPDATED, reconnecting);
                 }));
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public synchronized void removeDeletedUserSession(AccountDeletedEvent event) {
+        mediaSessionStore.findByUserId(event.userId()).ifPresent(session -> {
+            try {
+                mediaSessionStore.delete(session);
+            } catch (RuntimeException exception) {
+                LOGGER.warn("Could not remove media session for deleted user {}", event.userId(), exception);
+            }
+            try {
+                liveKitMediaService.disconnect(session);
+            } catch (RuntimeException exception) {
+                LOGGER.warn("Could not disconnect deleted user {} from LiveKit", event.userId(), exception);
+            }
+            try {
+                publish(PARTICIPANT_LEFT, session.anonymized());
+            } catch (RuntimeException exception) {
+                LOGGER.warn("Could not publish media departure for deleted user {}", event.userId(), exception);
+            }
+        });
     }
 
     @EventListener
@@ -234,12 +257,17 @@ public class MediaPresenceService {
     private List<String> recipients(MediaSession session) {
         if (session.channelKind() == MediaChannelKind.SERVER_VOICE) {
             return serverMemberRepository.findByServerId(session.serverId()).stream()
-                    .map(member -> member.getUser().getEmail())
+                    .map(member -> member.getUser())
+                    .filter(User::isEnabled)
+                    .map(User::getEmail)
                     .distinct()
                     .toList();
         }
         return directChannelRepository.findById(session.channelId())
-                .map(channel -> List.of(channel.getParticipantOne().getEmail(), channel.getParticipantTwo().getEmail()))
+                .map(channel -> List.of(channel.getParticipantOne(), channel.getParticipantTwo()).stream()
+                        .filter(User::isEnabled)
+                        .map(User::getEmail)
+                        .toList())
                 .orElseGet(List::of);
     }
 }

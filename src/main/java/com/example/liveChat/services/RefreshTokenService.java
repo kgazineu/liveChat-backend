@@ -31,6 +31,9 @@ public class RefreshTokenService {
 
     @Transactional
     public UserLoginResponseDTO issue(User user) {
+        if (user == null || !user.isEnabled()) {
+            throw new BadCredentialsException("Invalid credentials");
+        }
         RefreshToken refreshToken = new RefreshToken();
         refreshToken.setUser(user);
         return rotate(refreshToken);
@@ -55,6 +58,10 @@ public class RefreshTokenService {
     }
 
     private UserLoginResponseDTO rotate(RefreshToken refreshToken) {
+        if (!refreshToken.getUser().isEnabled()) {
+            refreshTokenRepository.delete(refreshToken);
+            throw new BadCredentialsException("Invalid refresh token");
+        }
         byte[] bytes = new byte[32];
         random.nextBytes(bytes);
         String rawToken = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);

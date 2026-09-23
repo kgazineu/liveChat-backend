@@ -120,7 +120,11 @@ class SecurityIntegrationTests {
         assertThat(users.existsById(other.getId())).isTrue();
         mvc.perform(delete("/users/" + owner.getId()).header("Authorization", "Bearer " + login.token()))
                 .andExpect(status().isNoContent());
-        assertThat(users.existsById(owner.getId())).isFalse();
+        User tombstone = users.findById(owner.getId()).orElseThrow();
+        assertThat(tombstone.getDeletedAt()).isNotNull();
+        assertThat(tombstone.getName()).isEqualTo("Usuário excluído");
+        assertThat(tombstone.getEmail()).isEqualTo("deleted-" + owner.getId() + "@deleted.invalid");
+        assertThat(tombstone.isEnabled()).isFalse();
         mvc.perform(get("/users/me").header("Authorization", "Bearer " + login.token()))
                 .andExpect(status().isUnauthorized());
         refreshUnauthorized(login.refreshToken());

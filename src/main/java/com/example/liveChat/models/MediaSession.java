@@ -47,4 +47,9 @@ public record MediaSession(
                 screenShareEnabled == null ? this.screenShareEnabled : screenShareEnabled,
                 status, Instant.now(), reconnectionId);
     }
+
+    public MediaSession anonymized() {
+        return new MediaSession(channelKind, serverId, channelId, userId, "Usuário excluído", joinedAt,
+                microphoneEnabled, cameraEnabled, screenShareEnabled, status, lastSeenAt, reconnectionId);
+    }
 }

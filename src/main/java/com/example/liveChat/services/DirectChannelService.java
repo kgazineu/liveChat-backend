@@ -35,23 +35,26 @@ public class DirectChannelService {
             throw new InvalidRequestException("You cannot create a direct channel with yourself");
         }
 
-        User otherUser = userRepository.findById(participantId)
+        User activeCurrentUser = userRepository.findActiveById(currentUser.getId())
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
-        boolean currentUserComesFirst = currentUser.getId().compareTo(otherUser.getId()) < 0;
-        User participantOne = currentUserComesFirst ? currentUser : otherUser;
-        User participantTwo = currentUserComesFirst ? otherUser : currentUser;
+        User otherUser = userRepository.findActiveById(participantId)
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
+        boolean currentUserComesFirst = activeCurrentUser.getId().compareTo(otherUser.getId()) < 0;
+        User participantOne = currentUserComesFirst ? activeCurrentUser : otherUser;
+        User participantTwo = currentUserComesFirst ? otherUser : activeCurrentUser;
 
         return directChannelRepository.findByParticipantOneIdAndParticipantTwoId(
                         participantOne.getId(), participantTwo.getId())
-                .map(channel -> new CreateOrGetResult(DirectChannelResponseDTO.from(channel, currentUser.getId()), false))
+                .map(channel -> new CreateOrGetResult(DirectChannelResponseDTO.from(channel, activeCurrentUser.getId()), false))
                 .orElseGet(() -> {
                     DirectChannel created = directChannelRepository.save(new DirectChannel(participantOne, participantTwo));
-                    return new CreateOrGetResult(DirectChannelResponseDTO.from(created, currentUser.getId()), true);
+                    return new CreateOrGetResult(DirectChannelResponseDTO.from(created, activeCurrentUser.getId()), true);
                 });
     }
 
     @Transactional(readOnly = true)
     public List<DirectChannelResponseDTO> list(User currentUser) {
+        requireActive(currentUser);
         return directChannelRepository.findByParticipantOneIdOrParticipantTwoIdOrderByCreatedAtDesc(
                         currentUser.getId(), currentUser.getId()).stream()
                 .map(channel -> DirectChannelResponseDTO.from(channel, currentUser.getId()))
@@ -60,12 +63,19 @@ public class DirectChannelService {
 
     @Transactional(readOnly = true)
     public DirectChannelResponseDTO get(String channelId, User currentUser) {
+        requireActive(currentUser);
         DirectChannel channel = directChannelRepository.findById(channelId)
                 .orElseThrow(() -> new DirectChannelNotFoundException("Direct channel not found"));
         if (!channel.hasParticipant(currentUser.getId())) {
             throw new AccessDeniedException("You are not a participant of this direct channel");
         }
         return DirectChannelResponseDTO.from(channel, currentUser.getId());
+    }
+
+    private void requireActive(User user) {
+        if (user == null || user.getId() == null || userRepository.findActiveById(user.getId()).isEmpty()) {
+            throw new UserNotFoundException("User not found");
+        }
     }
 
     public record CreateOrGetResult(DirectChannelResponseDTO channel, boolean created) {

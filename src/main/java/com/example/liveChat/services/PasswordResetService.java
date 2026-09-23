@@ -70,7 +70,7 @@ public class PasswordResetService {
     public void request(String email) {
         if (email == null || email.isBlank()) return;
 
-        userRepository.findByEmailIgnoreCase(email.trim()).ifPresent(user -> {
+        userRepository.findActiveByEmailIgnoreCase(email.trim()).ifPresent(user -> {
             String rawToken = generateToken();
             PasswordResetToken resetToken = new PasswordResetToken();
             resetToken.setTokenHash(hash(rawToken));
@@ -98,7 +98,7 @@ public class PasswordResetService {
         String userId = passwordResetTokenRepository.findUserIdByTokenHash(tokenHash)
                 .orElseThrow(this::invalidToken);
         User user = entityManager.find(User.class, userId, LockModeType.PESSIMISTIC_WRITE);
-        if (user == null) throw invalidToken();
+        if (user == null || !user.isEnabled()) throw invalidToken();
 
         PasswordResetToken resetToken = passwordResetTokenRepository.findByTokenHash(tokenHash)
                 .orElseThrow(this::invalidToken);
