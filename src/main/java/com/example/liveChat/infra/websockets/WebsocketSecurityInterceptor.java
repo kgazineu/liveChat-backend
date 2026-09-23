@@ -42,6 +42,9 @@ public class WebsocketSecurityInterceptor implements ChannelInterceptor {
             }
             var user = userRepository.findByEmail(email)
                     .orElseThrow(() -> new BadCredentialsException("Invalid WebSocket credentials"));
+            if (!tokenService.isTokenValidForUser(authHeader.substring(7), user)) {
+                throw new BadCredentialsException("Invalid WebSocket credentials");
+            }
             accessor.setUser(new UsernamePasswordAuthenticationToken(user.getEmail(), null, user.getAuthorities()));
             return message;
         }
@@ -66,6 +69,10 @@ public class WebsocketSecurityInterceptor implements ChannelInterceptor {
     }
 
     private boolean isAllowedSubscribeDestination(String destination) {
-        return "/user/queue/messages".equals(destination) || "/user/queue/media-presence".equals(destination);
+        return "/user/queue/messages".equals(destination)
+                || "/user/queue/media-presence".equals(destination)
+                || "/user/queue/friendships".equals(destination)
+                || "/user/queue/server-invites".equals(destination)
+                || "/user/queue/server-members".equals(destination);
     }
 }

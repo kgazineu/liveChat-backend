@@ -19,8 +19,14 @@ public class User implements UserDetails {
     private String id;
 
     private String name;
+
+    @Column(unique = true)
     private String email;
+
     private String password;
+
+    @Column(nullable = false, columnDefinition = "bigint default 0")
+    private long credentialsVersion = 0L;
 
     public User() {}
 

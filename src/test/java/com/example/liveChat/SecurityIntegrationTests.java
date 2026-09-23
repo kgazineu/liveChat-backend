@@ -140,6 +140,41 @@ class SecurityIntegrationTests {
     }
 
     @Test
+    void accessTokenCarriesAndEnforcesCredentialsVersion() throws Exception {
+        User user = user();
+        String token = tokenService.generateToken(user).token();
+        assertThat(JWT.decode(token).getClaim("cv").asLong()).isEqualTo(0L);
+        assertThat(tokenService.isTokenValidForUser(token, user)).isTrue();
+
+        user.setCredentialsVersion(1);
+        users.saveAndFlush(user);
+        assertThat(tokenService.isTokenValidForUser(token, user)).isFalse();
+        mvc.perform(get("/users/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/users/me").header("Authorization", "Bearer " + tokenService.generateToken(user).token()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void registrationNormalizesEmailAndRejectsCaseInsensitiveDuplicate() throws Exception {
+        String email = "User-" + UUID.randomUUID() + "@Example.Test";
+        Map<String, String> registration = Map.of("name", "Test", "email", email, "password", "password");
+
+        mvc.perform(post("/users/register").contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(registration)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(email.toLowerCase()));
+        mvc.perform(post("/users/register").contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of(
+                                "name", "Duplicate", "email", email.toLowerCase(), "password", "password"))))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/users/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of(
+                                "email", email.toUpperCase(), "password", "password"))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void invalidLoginReturnsUnauthorized() throws Exception {
         User user = user();
         for (String email : List.of(user.getEmail(), "missing@example.test")) {

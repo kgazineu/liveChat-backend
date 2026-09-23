@@ -88,6 +88,63 @@ paths:
                 $ref: '#/components/schemas/AuthTokens'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /users/password-reset/request:
+    post:
+      tags: [Usuários]
+      operationId: requestPasswordReset
+      summary: Solicita recuperação de senha
+      description: >-
+        Sempre responde 202 para não revelar se o e-mail está cadastrado. Quando a conta existe,
+        envia um link de uso único para o e-mail do usuário; o token expira em 15 minutos por padrão.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+      responses:
+        '202':
+          description: Solicitação recebida, independentemente da existência da conta.
+  /users/password-reset/confirm:
+    post:
+      tags: [Usuários]
+      operationId: confirmPasswordReset
+      summary: Define uma nova senha com o token recebido por e-mail
+      description: >-
+        Consome o token uma única vez, altera a senha e invalida os JWTs e refresh tokens emitidos
+        anteriormente para a conta.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmRequest'
+      responses:
+        '204':
+          description: Senha alterada e sessões anteriores invalidadas.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /users/profile-update/confirm:
+    post:
+      tags: [Usuários]
+      operationId: confirmProfileUpdate
+      summary: Confirma uma atualização pendente do perfil
+      description: >-
+        Consome o token de uso único enviado ao e-mail anterior e aplica o novo nome e/ou e-mail.
+        Quando o e-mail muda, JWTs e refresh tokens anteriores são invalidados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdateConfirmRequest'
+      responses:
+        '204':
+          description: Perfil atualizado.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /users:
     get:
       tags: [Usuários]
@@ -153,6 +210,22 @@ paths:
                   $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /users/me/password-reset:
+    post:
+      tags: [Usuários]
+      operationId: requestAuthenticatedPasswordReset
+      summary: Solicita troca de senha para a conta autenticada
+      description: >-
+        Envia ao e-mail atual o mesmo link usado na recuperação de senha. O cliente não informa o
+        endereço; ele é obtido do usuário autenticado. A nova senha é definida em
+        `/users/password-reset/confirm`.
+      security:
+        - bearerAuth: []
+      responses:
+        '202':
+          description: Solicitação recebida.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /users/me:
     get:
       tags: [Usuários]
@@ -169,6 +242,30 @@ paths:
                 $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [Usuários]
+      operationId: requestProfileUpdate
+      summary: Solicita alteração do nome e/ou e-mail
+      description: >-
+        Não altera o perfil imediatamente. Cria uma solicitação de uso único e envia o link de
+        confirmação ao e-mail atual, inclusive quando o endereço solicitado é diferente.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdateRequest'
+      responses:
+        '202':
+          description: Atualização pendente criada e confirmação enviada ao e-mail atual.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /friendships/send:
     post:
       tags: [Amizades]
@@ -185,10 +282,14 @@ paths:
       responses:
         '200':
           description: Solicitação enviada ou relacionamento rejeitado reaberto
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /friendships/{id}/accept:
     patch:
       tags: [Amizades]
@@ -202,10 +303,14 @@ paths:
       responses:
         '204':
           description: Solicitação aceita
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /friendships/{id}/reject:
     patch:
       tags: [Amizades]
@@ -219,10 +324,14 @@ paths:
       responses:
         '204':
           description: Solicitação rejeitada
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /friendships:
     get:
       tags: [Amizades]
@@ -552,6 +661,31 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /servers/{serverId}/members:
+    get:
+      tags: [Servidores]
+      operationId: listServerMembers
+      summary: Lista todos os membros de um servidor
+      description: Exige que o usuário autenticado também seja membro. A lista é ordenada pelo instante de entrada.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServerId'
+      responses:
+        '200':
+          description: Membros encontrados.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServerMember'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /servers/{serverId}/channels:
     post:
       tags: [Servidores]
@@ -867,10 +1001,15 @@ paths:
         - ambos usam o corpo `MessageRequest`;
         - `SUBSCRIBE` em `/user/queue/messages` para receber `Message`;
         - `SUBSCRIBE` em `/user/queue/media-presence` para receber `MediaPresenceEvent`;
+        - `SUBSCRIBE` em `/user/queue/friendships` para receber `FriendshipEvent`;
+        - `SUBSCRIBE` em `/user/queue/server-invites` para receber `ServerInviteEvent`;
+        - `SUBSCRIBE` em `/user/queue/server-members` para receber `ServerMemberEvent`;
         - os demais destinos de envio e assinatura são rejeitados.
 
-        O endpoint usa WebSocket nativo, sem SockJS. A autenticação não é enviada como header HTTP
-        no handshake; ela é enviada no frame STOMP `CONNECT`.
+        Os eventos são privados e efêmeros: o cliente deve assinar as filas antes de buscar os snapshots
+        REST e repetir as consultas após uma reconexão. O endpoint usa WebSocket nativo, sem SockJS.
+        A autenticação não é enviada como header HTTP no handshake; ela é enviada no frame STOMP
+        `CONNECT`. Um JWT emitido antes de uma recuperação de senha também é rejeitado.
       responses:
         '101':
           description: Protocolo atualizado para WebSocket.
@@ -879,12 +1018,21 @@ paths:
             - /app/servers/{serverId}/channels/{channelId}/messages
           x-stomp-subscribe-destination: /user/queue/messages
           x-stomp-media-presence-subscribe-destination: /user/queue/media-presence
+          x-stomp-friendships-subscribe-destination: /user/queue/friendships
+          x-stomp-server-invites-subscribe-destination: /user/queue/server-invites
+          x-stomp-server-members-subscribe-destination: /user/queue/server-members
           x-stomp-send-schema:
             $ref: '#/components/schemas/MessageRequest'
           x-stomp-message-schema:
             $ref: '#/components/schemas/Message'
           x-stomp-media-presence-event-schema:
             $ref: '#/components/schemas/MediaPresenceEvent'
+          x-stomp-friendship-event-schema:
+            $ref: '#/components/schemas/FriendshipEvent'
+          x-stomp-server-invite-event-schema:
+            $ref: '#/components/schemas/ServerInviteEvent'
+          x-stomp-server-member-event-schema:
+            $ref: '#/components/schemas/ServerMemberEvent'
         '400':
           description: Handshake WebSocket inválido.
   /actuator/health:
@@ -1041,6 +1189,53 @@ components:
           type: string
           description: Token opaco retornado no login ou na última renovação.
           example: fQ9wVjW8P0Qm0xW6vYgR3nY9kF2uZcT8P4sL7aE1bN0
+    PasswordResetRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: ana@example.com
+    PasswordResetConfirmRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          description: Token opaco de uso único recebido no link enviado por e-mail.
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 72
+          example: nova-senha-segura
+    ProfileUpdateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Novo nome exibido, normalizado com remoção de espaços nas extremidades.
+          example: Ana Silva
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Novo e-mail, normalizado para minúsculas.
+          example: ana.nova@example.com
+    ProfileUpdateConfirmRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          description: Token opaco de uso único enviado ao e-mail anterior.
     AuthTokens:
       type: object
       required: [name, token, expiresIn, refreshToken, refreshExpiresIn]
@@ -1096,6 +1291,32 @@ components:
         requesterId:
           type: string
           format: uuid
+    FriendshipEvent:
+      type: object
+      required: [type, friendshipId, requesterId, requesterName, addresseeId, addresseeName, status, createdAt]
+      properties:
+        type:
+          type: string
+          enum: [friendship.request.created, friendship.request.accepted, friendship.request.rejected]
+        friendshipId:
+          type: integer
+          format: int64
+        requesterId:
+          type: string
+          format: uuid
+        requesterName:
+          type: string
+        addresseeId:
+          type: string
+          format: uuid
+        addresseeName:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, ACCEPTED, REJECTED]
+        createdAt:
+          type: string
+          format: date-time
     MessageRequest:
       type: object
       required: [content]
@@ -1267,6 +1488,38 @@ components:
         createdAt:
           type: string
           format: date-time
+    ServerMember:
+      type: object
+      required: [userId, userName, userEmail, role, joinedAt]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        userName:
+          type: string
+          example: Ana Silva
+        userEmail:
+          type: string
+          format: email
+          example: ana@example.com
+        role:
+          type: string
+          enum: [OWNER, MEMBER]
+        joinedAt:
+          type: string
+          format: date-time
+    ServerMemberEvent:
+      type: object
+      required: [type, serverId, member]
+      properties:
+        type:
+          type: string
+          enum: [server.member.joined]
+        serverId:
+          type: string
+          format: uuid
+        member:
+          $ref: '#/components/schemas/ServerMember'
     CreateServerInviteRequest:
       type: object
       required: [friendId]
@@ -1294,6 +1547,37 @@ components:
         inviterName:
           type: string
           example: Ana Silva
+        status:
+          type: string
+          enum: [PENDING, ACCEPTED]
+        createdAt:
+          type: string
+          format: date-time
+    ServerInviteEvent:
+      type: object
+      required: [type, inviteId, serverId, serverName, inviterId, inviterName, inviteeId, inviteeName, status, createdAt]
+      properties:
+        type:
+          type: string
+          enum: [server.invite.created, server.invite.accepted]
+        inviteId:
+          type: integer
+          format: int64
+        serverId:
+          type: string
+          format: uuid
+        serverName:
+          type: string
+        inviterId:
+          type: string
+          format: uuid
+        inviterName:
+          type: string
+        inviteeId:
+          type: string
+          format: uuid
+        inviteeName:
+          type: string
         status:
           type: string
           enum: [PENDING, ACCEPTED]

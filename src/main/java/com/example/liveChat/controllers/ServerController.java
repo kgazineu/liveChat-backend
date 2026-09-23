@@ -5,6 +5,7 @@ import com.example.liveChat.dto.CreateChannelRequestDTO;
 import com.example.liveChat.dto.CreateServerInviteRequestDTO;
 import com.example.liveChat.dto.CreateServerRequestDTO;
 import com.example.liveChat.dto.ServerInviteResponseDTO;
+import com.example.liveChat.dto.ServerMemberResponseDTO;
 import com.example.liveChat.dto.ServerResponseDTO;
 import com.example.liveChat.infra.RestErrorMessage;
 import com.example.liveChat.models.User;
@@ -74,6 +75,22 @@ public class ServerController {
     public ResponseEntity<ServerResponseDTO> get(@PathVariable String serverId,
                                                    @Parameter(hidden = true) @AuthenticationPrincipal User user) {
         return ResponseEntity.ok(serverService.get(serverId, user));
+    }
+
+    @GetMapping("/{serverId}/members")
+    @Operation(summary = "Lista os membros de um servidor", description = "Exige que o usuário autenticado seja membro.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Membros encontrados",
+                    content = @Content(array = @ArraySchema(schema = @Schema(implementation = ServerMemberResponseDTO.class)))),
+            @ApiResponse(responseCode = "403", description = "Usuário não é membro",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "404", description = "Servidor inexistente",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+    })
+    public ResponseEntity<List<ServerMemberResponseDTO>> listMembers(
+            @PathVariable String serverId,
+            @Parameter(hidden = true) @AuthenticationPrincipal User user) {
+        return ResponseEntity.ok(serverService.listMembers(serverId, user));
     }
 
     @PostMapping("/{serverId}/channels")
