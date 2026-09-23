@@ -6,6 +6,7 @@ import lombok.Setter;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
 
@@ -28,12 +29,25 @@ public class User implements UserDetails {
     @Column(nullable = false, columnDefinition = "bigint default 0")
     private long credentialsVersion = 0L;
 
+    private Instant deletedAt;
+
     public User() {}
 
     public User(String name, String email, String password) {
         this.name = name;
         this.email = email;
         this.password = password;
+    }
+
+    public void softDelete() {
+        if (deletedAt != null) return;
+        if (id == null) throw new IllegalStateException("A persisted user is required for soft delete");
+
+        this.name = "Usuário excluído";
+        this.email = "deleted-" + id + "@deleted.invalid";
+        this.password = "{deleted}" + id;
+        this.credentialsVersion++;
+        this.deletedAt = Instant.now();
     }
 
     @Override
@@ -68,6 +82,6 @@ public class User implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return true;
+        return deletedAt == null;
     }
 }

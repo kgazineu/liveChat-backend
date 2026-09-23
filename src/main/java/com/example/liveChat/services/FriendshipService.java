@@ -40,9 +40,9 @@ public class FriendshipService {
             throw new InvalidRequestException("User cannot send a friend request to themselves");
         }
 
-        User requester = userRepository.findById(requesterId)
+        User requester = userRepository.findActiveById(requesterId)
                 .orElseThrow(() -> new UserNotFoundException("Requester not found"));
-        User addressee = userRepository.findById(addresseeId)
+        User addressee = userRepository.findActiveById(addresseeId)
                 .orElseThrow(() -> new UserNotFoundException("Target user not found"));
 
         Optional<Friendship> existingRelationship = friendshipRepository.findRelationship(requester, addressee);
@@ -73,6 +73,7 @@ public class FriendshipService {
 
     @Transactional
     public void rejectFriendRequest(Long friendshipId, String userIdDoLogado) {
+        requireActiveUser(userIdDoLogado);
         Friendship friendship = getFriendship(friendshipId);
 
         if (!friendship.getAddressee().getId().equals(userIdDoLogado)) {
@@ -87,6 +88,7 @@ public class FriendshipService {
 
     @Transactional
     public void acceptFriendRequest(Long friendshipId, String loggedUserId) {
+        requireActiveUser(loggedUserId);
         Friendship friendship = getFriendship(friendshipId);
 
         if (!friendship.getAddressee().getId().equals(loggedUserId)) {
@@ -101,7 +103,7 @@ public class FriendshipService {
 
     @Transactional(readOnly = true)
     public List<User> getUserFriends(String userId) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findActiveById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
         List<Friendship> friendships = friendshipRepository.findAllFriends(user);
 
@@ -112,9 +114,14 @@ public class FriendshipService {
 
     @Transactional(readOnly = true)
     public List<Friendship> getPendingRequests(String userId) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findActiveById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found"));
         return friendshipRepository.findByAddresseeAndStatus(user, FriendshipStatus.PENDING);
+    }
+
+    private void requireActiveUser(String userId) {
+        userRepository.findActiveById(userId)
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
     }
 
     private Friendship getFriendship(Long friendshipId) {

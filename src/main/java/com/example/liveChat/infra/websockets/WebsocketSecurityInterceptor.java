@@ -40,7 +40,7 @@ public class WebsocketSecurityInterceptor implements ChannelInterceptor {
             if (email == null || email.isBlank()) {
                 throw new BadCredentialsException("Invalid WebSocket credentials");
             }
-            var user = userRepository.findByEmail(email)
+            var user = userRepository.findActiveByEmailIgnoreCase(email)
                     .orElseThrow(() -> new BadCredentialsException("Invalid WebSocket credentials"));
             if (!tokenService.isTokenValidForUser(authHeader.substring(7), user)) {
                 throw new BadCredentialsException("Invalid WebSocket credentials");

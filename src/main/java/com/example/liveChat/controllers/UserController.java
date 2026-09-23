@@ -136,7 +136,7 @@ public class UserController {
     }
 
     @GetMapping
-    @Operation(summary = "Lista os usuários", description = "Retorna todas as contas cadastradas.",
+    @Operation(summary = "Lista os usuários", description = "Retorna somente contas ativas.",
             security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponse(responseCode = "200", description = "Usuários encontrados",
             content = @Content(array = @ArraySchema(schema = @Schema(implementation = UserResponseDTO.class))))
@@ -149,10 +149,10 @@ public class UserController {
     }
 
     @DeleteMapping("{id}")
-    @Operation(summary = "Exclui a própria conta", description = "O id deve pertencer ao usuário autenticado.",
+    @Operation(summary = "Exclui a própria conta", description = "Anonimiza a conta e revoga suas credenciais, preservando o histórico. O id deve pertencer ao usuário autenticado.",
             security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponses({
-            @ApiResponse(responseCode = "204", description = "Conta excluída"),
+            @ApiResponse(responseCode = "204", description = "Conta anonimizada e desativada"),
             @ApiResponse(responseCode = "401", description = "JWT ausente ou inválido"),
             @ApiResponse(responseCode = "403", description = "Tentativa de excluir outra conta",
                     content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),

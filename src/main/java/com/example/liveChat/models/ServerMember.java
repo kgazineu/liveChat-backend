@@ -45,4 +45,11 @@ public class ServerMember {
         this.role = role;
         this.joinedAt = Instant.now();
     }
+
+    public void promoteToOwner() {
+        if (user.getDeletedAt() != null) {
+            throw new IllegalStateException("A deleted user cannot own a server");
+        }
+        this.role = ServerRole.OWNER;
+    }
 }

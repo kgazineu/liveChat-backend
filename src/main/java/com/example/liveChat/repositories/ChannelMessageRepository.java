@@ -7,4 +7,6 @@ import java.util.List;
 
 public interface ChannelMessageRepository extends JpaRepository<ChannelMessage, Long> {
     List<ChannelMessage> findByChannelIdOrderByCreatedAtAscIdAsc(String channelId);
+
+    void deleteByChannelServerId(String serverId);
 }

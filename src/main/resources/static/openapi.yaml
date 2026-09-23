@@ -167,15 +167,18 @@ paths:
     delete:
       tags: [Usuários]
       operationId: deleteUser
-      summary: Exclui a própria conta
-      description: O identificador deve pertencer ao usuário autenticado.
+      summary: Desativa e anonimiza a própria conta
+      description: >-
+        O identificador deve pertencer ao usuário autenticado. A conta é mantida como tombstone para
+        preservar o histórico, mas perde acesso, dados pessoais, vínculos sociais e memberships. Os
+        servidores são transferidos ao membro ativo mais antigo; servidores sem sucessor são removidos.
       security:
         - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/UserId'
       responses:
         '204':
-          description: Conta excluída
+          description: Conta anonimizada, desativada e credenciais revogadas.
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':

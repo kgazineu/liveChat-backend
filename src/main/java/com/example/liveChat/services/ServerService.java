@@ -60,6 +60,7 @@ public class ServerService {
 
     @Transactional
     public ServerResponseDTO create(CreateServerRequestDTO request, User owner) {
+        requireActive(owner);
         String name = requiredName(request == null ? null : request.name(), "Server name");
         Server server = serverRepository.save(new Server(name, owner));
         ServerMember member = serverMemberRepository.save(new ServerMember(server, owner, ServerRole.OWNER));
@@ -68,6 +69,7 @@ public class ServerService {
 
     @Transactional(readOnly = true)
     public List<ServerResponseDTO> listFor(User user) {
+        requireActive(user);
         return serverMemberRepository.findByUserIdOrderByJoinedAtDesc(user.getId()).stream()
                 .map(member -> ServerResponseDTO.from(member.getServer(), member))
                 .toList();
@@ -75,12 +77,14 @@ public class ServerService {
 
     @Transactional(readOnly = true)
     public ServerResponseDTO get(String serverId, User user) {
+        requireActive(user);
         Server server = getServer(serverId);
         return ServerResponseDTO.from(server, getMember(serverId, user));
     }
 
     @Transactional(readOnly = true)
     public List<ServerMemberResponseDTO> listMembers(String serverId, User user) {
+        requireActive(user);
         getServer(serverId);
         getMember(serverId, user);
         return serverMemberRepository.findByServerIdOrderByJoinedAtAscIdAsc(serverId).stream()
@@ -90,6 +94,7 @@ public class ServerService {
 
     @Transactional
     public ChannelResponseDTO createChannel(String serverId, CreateChannelRequestDTO request, User user) {
+        requireActive(user);
         Server server = getServer(serverId);
         ServerMember member = getMember(serverId, user);
         if (member.getRole() != ServerRole.OWNER) {
@@ -106,6 +111,7 @@ public class ServerService {
 
     @Transactional(readOnly = true)
     public List<ChannelResponseDTO> listChannels(String serverId, User user) {
+        requireActive(user);
         getServer(serverId);
         getMember(serverId, user);
         return serverChannelRepository.findByServerIdOrderByPositionAscIdAsc(serverId).stream()
@@ -115,6 +121,7 @@ public class ServerService {
 
     @Transactional
     public ServerInviteResponseDTO inviteFriend(String serverId, CreateServerInviteRequestDTO request, User inviter) {
+        requireActive(inviter);
         Server server = getServer(serverId);
         getMember(serverId, inviter);
         if (request == null || request.friendId() == null || request.friendId().isBlank()) {
@@ -124,7 +131,7 @@ public class ServerService {
             throw new InvalidRequestException("You cannot invite yourself");
         }
 
-        User invitee = userRepository.findById(request.friendId())
+        User invitee = userRepository.findActiveById(request.friendId())
                 .orElseThrow(() -> new InvalidRequestException("Friend not found"));
         if (!friendshipRepository.areFriends(inviter, invitee)) {
             throw new AccessDeniedException("You can only invite accepted friends");
@@ -144,6 +151,7 @@ public class ServerService {
 
     @Transactional(readOnly = true)
     public List<ServerInviteResponseDTO> listPendingInvites(User user) {
+        requireActive(user);
         return serverInviteRepository.findByInviteeIdAndStatusOrderByCreatedAtDesc(user.getId(), ServerInviteStatus.PENDING)
                 .stream()
                 .map(ServerInviteResponseDTO::from)
@@ -152,6 +160,7 @@ public class ServerService {
 
     @Transactional
     public ServerResponseDTO acceptInvite(Long inviteId, User user) {
+        requireActive(user);
         ServerInvite invite = serverInviteRepository.findByIdAndInviteeId(inviteId, user.getId())
                 .orElseThrow(() -> new ServerInviteNotFoundException("Server invite not found"));
         if (invite.getStatus() != ServerInviteStatus.PENDING) {
@@ -174,6 +183,12 @@ public class ServerService {
         eventPublisher.publishEvent(SocialNotificationEvent.serverMembers(memberEmails,
                 new ServerMemberEventDTO("server.member.joined", serverId, ServerMemberResponseDTO.from(member))));
         return ServerResponseDTO.from(invite.getServer(), member);
+    }
+
+    private void requireActive(User user) {
+        if (user == null || user.getId() == null || userRepository.findActiveById(user.getId()).isEmpty()) {
+            throw new AccessDeniedException("Active user required");
+        }
     }
 
     private Server getServer(String serverId) {

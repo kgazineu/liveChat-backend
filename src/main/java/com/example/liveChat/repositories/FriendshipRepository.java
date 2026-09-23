@@ -4,6 +4,7 @@ import com.example.liveChat.models.Friendship;
 import com.example.liveChat.models.FriendshipStatus;
 import com.example.liveChat.models.User;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -23,5 +24,10 @@ public interface FriendshipRepository extends JpaRepository<Friendship,Long> {
             "WHERE ((f.requester = :user1 AND f.addressee = :user2) OR " +
             "(f.requester = :user2 AND f.addressee = :user1)) AND f.status = 'ACCEPTED'")
     boolean areFriends(@Param("user1") User user1, @Param("user2") User user2);
+
+    @Modifying
+    @Query("delete from Friendship friendship where friendship.requester.id = :userId " +
+            "or friendship.addressee.id = :userId")
+    void deleteAllInvolvingUser(@Param("userId") String userId);
 
 }

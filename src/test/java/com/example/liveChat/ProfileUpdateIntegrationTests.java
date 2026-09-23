@@ -216,7 +216,8 @@ class ProfileUpdateIntegrationTests {
         mvc.perform(delete("/users/" + user.getId()).header("Authorization", "Bearer " + login.token()))
                 .andExpect(status().isNoContent());
 
-        assertThat(users.existsById(user.getId())).isFalse();
+        assertThat(users.findById(user.getId())).isPresent()
+                .get().extracting(User::getDeletedAt).isNotNull();
         assertThat(pendingProfileUpdates.findAll()).noneMatch(update -> update.getUser().getId().equals(user.getId()));
     }
 

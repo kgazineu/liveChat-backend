@@ -35,4 +35,14 @@ public class Server {
         this.owner = owner;
         this.createdAt = Instant.now();
     }
+
+    public void transferOwnership(User newOwner) {
+        if (newOwner == null || newOwner.getDeletedAt() != null) {
+            throw new IllegalArgumentException("New owner must be active");
+        }
+        if (owner.getId().equals(newOwner.getId())) {
+            throw new IllegalArgumentException("New owner must be a different user");
+        }
+        this.owner = newOwner;
+    }
 }

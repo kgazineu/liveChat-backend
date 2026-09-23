@@ -69,7 +69,7 @@ public class ProfileUpdateService {
     @Transactional
     public void request(String userId, ProfileUpdateRequestDTO request) {
         User user = entityManager.find(User.class, userId, LockModeType.PESSIMISTIC_WRITE);
-        if (user == null) throw new UserNotFoundException("User not found");
+        if (user == null || !user.isEnabled()) throw new UserNotFoundException("User not found");
 
         String requestedName = normalizeName(request == null ? null : request.name());
         String requestedEmail = normalizeEmail(request == null ? null : request.email());
@@ -109,7 +109,7 @@ public class ProfileUpdateService {
         String userId = pendingProfileUpdateRepository.findUserIdByTokenHash(tokenHash)
                 .orElseThrow(this::invalidToken);
         User user = entityManager.find(User.class, userId, LockModeType.PESSIMISTIC_WRITE);
-        if (user == null) throw invalidToken();
+        if (user == null || !user.isEnabled()) throw invalidToken();
 
         PendingProfileUpdate pendingUpdate = pendingProfileUpdateRepository.findByTokenHash(tokenHash)
                 .orElseThrow(this::invalidToken);
@@ -154,7 +154,7 @@ public class ProfileUpdateService {
     }
 
     private void ensureEmailAvailable(String email, String userId) {
-        userRepository.findByEmailIgnoreCase(email)
+        userRepository.findActiveByEmailIgnoreCase(email)
                 .filter(existing -> !existing.getId().equals(userId))
                 .ifPresent(existing -> { throw emailConflict(email); });
     }

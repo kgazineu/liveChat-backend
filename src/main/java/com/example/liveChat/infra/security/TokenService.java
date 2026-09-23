@@ -47,7 +47,7 @@ public class TokenService {
     }
 
     public boolean isTokenValidForUser(String token, User user) {
-        if (user == null) return false;
+        if (user == null || !user.isEnabled()) return false;
         DecodedJWT decodedToken = verify(token);
         if (decodedToken == null || !user.getEmail().equals(decodedToken.getSubject())) return false;
         Long credentialsVersion = decodedToken.getClaim("cv").asLong();

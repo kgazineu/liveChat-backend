@@ -50,7 +50,7 @@ class WebsocketSecurityInterceptorTests {
                 .isInstanceOf(BadCredentialsException.class);
         verifyNoInteractions(users);
         when(tokenService.validateToken("token")).thenReturn("missing@example.test");
-        when(users.findByEmail("missing@example.test")).thenReturn(Optional.empty());
+        when(users.findActiveByEmailIgnoreCase("missing@example.test")).thenReturn(Optional.empty());
         assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
                 .isInstanceOf(BadCredentialsException.class);
     }
@@ -61,7 +61,7 @@ class WebsocketSecurityInterceptorTests {
         accessor.setNativeHeader("Authorization", "Bearer token");
         when(tokenService.validateToken("token")).thenReturn("user@example.test");
         User user = new User("User", "user@example.test", "hash");
-        when(users.findByEmail("user@example.test")).thenReturn(Optional.of(user));
+        when(users.findActiveByEmailIgnoreCase("user@example.test")).thenReturn(Optional.of(user));
         when(tokenService.isTokenValidForUser("token", user)).thenReturn(true);
         interceptor.preSend(message(accessor), null);
         assertThat(accessor.getUser().getName()).isEqualTo("user@example.test");
@@ -74,7 +74,7 @@ class WebsocketSecurityInterceptorTests {
         User user = new User("User", "user@example.test", "hash");
         user.setCredentialsVersion(1);
         when(tokenService.validateToken("stale-token")).thenReturn(user.getEmail());
-        when(users.findByEmail(user.getEmail())).thenReturn(Optional.of(user));
+        when(users.findActiveByEmailIgnoreCase(user.getEmail())).thenReturn(Optional.of(user));
         when(tokenService.isTokenValidForUser("stale-token", user)).thenReturn(false);
 
         assertThatThrownBy(() -> interceptor.preSend(message(accessor), null))
