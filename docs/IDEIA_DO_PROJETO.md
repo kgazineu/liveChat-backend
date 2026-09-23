@@ -15,8 +15,8 @@ O projeto é uma aplicação Java 21 com Spring Boot 3.5, PostgreSQL, JPA, Sprin
 As funcionalidades atuais são:
 
 - cadastro, login, JWT de acesso e refresh token;
-- recuperação de senha por e-mail com token opaco de uso único, expiração configurável, invalidação dos refresh tokens e rejeição dos JWTs anteriores à troca;
-- consulta e exclusão da própria conta;
+- recuperação e troca autenticada de senha por e-mail com token opaco de uso único, expiração configurável, invalidação dos refresh tokens e rejeição dos JWTs anteriores à troca;
+- consulta, atualização confirmada e exclusão da própria conta; alterações de nome ou e-mail ficam pendentes até a confirmação enviada ao endereço anterior;
 - solicitações de amizade e lista de amigos, com eventos privados STOMP de criação, aceite e rejeição;
 - mensagens persistidas em canais privados 1:1 e em canais `TEXT` de servidor;
 - WebSocket nativo em `/ws`, com STOMP e autenticação por `Authorization: Bearer <JWT>` no frame `CONNECT`;
@@ -241,7 +241,8 @@ Esta seção consolida as pendências do produto inteiro. A prioridade é termin
 - [ ] **Completar os eventos de domínio propostos.** `server.member.joined`, solicitações de amizade e convites direcionados já são publicados em filas privadas após o commit. Ainda falta `server.channel.created` e, no frontend, assinar `/user/queue/friendships`, `/user/queue/server-invites` e `/user/queue/server-members`, mantendo as consultas REST como reconciliação após conexão ou queda.
 - [ ] **Adicionar paginação aos históricos de mensagens.** As consultas de canais privados e canais de texto precisam de cursor ou paginação por data/identificador para não carregar todo o histórico conforme as conversas crescerem.
 - [ ] **Aplicar limites e proteção contra abuso.** Limitar tamanho e frequência de mensagens, login, solicitação de recuperação de senha, criação de convites e emissão de credenciais de mídia. Tokens de recuperação, tokens LiveKit e segredos nunca devem aparecer em logs.
-- [x] **Implementar recuperação de senha no backend.** A solicitação não revela se a conta existe; o link é enviado por SMTP, o token opaco é armazenado somente como hash SHA-256 e pode ser usado uma vez. A confirmação troca a senha, remove refresh tokens e invalida JWTs anteriores inclusive em novos `CONNECT` STOMP.
+- [x] **Implementar recuperação e troca autenticada de senha no backend.** A solicitação pública não revela se a conta existe; usuários autenticados também podem solicitar a troca sem informar o próprio e-mail. O token opaco é armazenado somente como hash SHA-256 e pode ser usado uma vez. A confirmação troca a senha, remove refresh tokens e invalida JWTs anteriores inclusive em novos `CONNECT` STOMP.
+- [x] **Implementar atualização segura de nome e e-mail.** `PUT /users/me` cria uma alteração pendente e envia um token de uso único ao e-mail atual. Somente a confirmação aplica os dados; a troca de e-mail invalida as credenciais anteriores e conflitos são revalidados no momento da aplicação.
 - [ ] **Expor saúde operacional da mídia.** Incluir uma verificação de prontidão da comunicação backend → LiveKit sem expor detalhes ou credenciais no endpoint público de saúde.
 - [ ] **Cobrir a integração com uma instância real do LiveKit.** Além dos testes unitários com cliente simulado, criar testes de integração que provisionem uma sala real, validem entrada e remoção de participante, indisponibilidade e os webhooks assinados.
 
@@ -253,7 +254,8 @@ Esta seção consolida as pendências do produto inteiro. A prioridade é termin
 - [ ] Hospedar a SFU na região mais próxima dos usuários esperados e confirmar a meta de RTT cliente ↔ SFU.
 - [ ] Definir persistência e alta disponibilidade do Redis usado pela presença e, se houver múltiplos nós LiveKit, configurar o Redis compartilhado da SFU.
 - [ ] Configurar métricas, logs e alertas para falhas de sala, participantes, perda de pacotes, uso de CPU, memória e banda.
-- [ ] Configurar um provedor SMTP de produção e as variáveis `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `MAIL_FROM` e `FRONTEND_PASSWORD_RESET_URL`. O ambiente local usa Mailpit nas portas 1025 e 8025.
+- [ ] Configurar um provedor SMTP de produção e as variáveis `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `MAIL_FROM`, `FRONTEND_PASSWORD_RESET_URL` e `FRONTEND_PROFILE_UPDATE_URL`. O ambiente local usa Mailpit nas portas 1025 e 8025.
+- [ ] Antes do deploy da atualização de perfil, verificar e corrigir e-mails duplicados na base; `TB_USER.email` passa a exigir unicidade e a nova tabela `TB_PENDING_PROFILE_UPDATE` será criada.
 - [ ] Atualizar o ambiente de deploy com `LIVEKIT_API_URL`, `LIVEKIT_CLIENT_URL`, `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET` antes de publicar uma versão que exija essas variáveis.
 
 ### Frontend — obrigatório
@@ -267,7 +269,8 @@ Esta seção consolida as pendências do produto inteiro. A prioridade é termin
 - [ ] Desconectar do LiveKit e descartar a credencial anterior ao sair ou trocar de canal.
 - [ ] Renderizar participantes e indicadores de microfone, câmera, tela e fala ativa a partir do estado confirmado pelo LiveKit/backend.
 - [ ] Completar as telas e fluxos de autenticação, amizades, servidores, canais, convites, mensagens e canais privados 1:1, caso ainda não estejam implementados no cliente.
-- [ ] Implementar as telas “esqueci minha senha” e “definir nova senha”, usando os endpoints `/users/password-reset/request` e `/users/password-reset/confirm`.
+- [ ] Implementar as telas “esqueci minha senha” e “definir nova senha”, usando os endpoints `/users/password-reset/request`, `/users/me/password-reset` e `/users/password-reset/confirm`.
+- [ ] Implementar a edição de nome/e-mail e a tela de confirmação do token recebido no endereço antigo, usando `PUT /users/me` e `POST /users/profile-update/confirm`. Após trocar o e-mail, limpar a sessão local e solicitar novo login.
 - [ ] Assinar as filas privadas de amizades, convites e membros logo após o `CONNECT`, atualizar a UI pelos eventos recebidos e refazer os snapshots REST após reconexão; eventos STOMP são efêmeros e não substituem as consultas.
 - [ ] Coletar estatísticas WebRTC no cliente: RTT, jitter, perda de pacotes, bitrate e atraso do jitter buffer.
 

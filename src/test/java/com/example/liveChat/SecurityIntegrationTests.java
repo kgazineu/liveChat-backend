@@ -156,6 +156,25 @@ class SecurityIntegrationTests {
     }
 
     @Test
+    void registrationNormalizesEmailAndRejectsCaseInsensitiveDuplicate() throws Exception {
+        String email = "User-" + UUID.randomUUID() + "@Example.Test";
+        Map<String, String> registration = Map.of("name", "Test", "email", email, "password", "password");
+
+        mvc.perform(post("/users/register").contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(registration)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(email.toLowerCase()));
+        mvc.perform(post("/users/register").contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of(
+                                "name", "Duplicate", "email", email.toLowerCase(), "password", "password"))))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/users/login").contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of(
+                                "email", email.toUpperCase(), "password", "password"))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void invalidLoginReturnsUnauthorized() throws Exception {
         User user = user();
         for (String email : List.of(user.getEmail(), "missing@example.test")) {

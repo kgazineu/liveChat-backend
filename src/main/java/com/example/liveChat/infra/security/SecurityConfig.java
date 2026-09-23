@@ -46,6 +46,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/users/refresh").permitAll()
                         .requestMatchers(HttpMethod.POST, "/users/password-reset/request").permitAll()
                         .requestMatchers(HttpMethod.POST, "/users/password-reset/confirm").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/users/profile-update/confirm").permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
                         .requestMatchers("/docs", "/docs/**", "/swagger-ui/**", "/openapi.yaml").permitAll()
                         .requestMatchers(HttpMethod.GET, "/v3/api-docs/swagger-config").permitAll()

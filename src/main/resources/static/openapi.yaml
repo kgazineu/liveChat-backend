@@ -124,6 +124,27 @@ paths:
           description: Senha alterada e sessões anteriores invalidadas.
         '400':
           $ref: '#/components/responses/BadRequest'
+  /users/profile-update/confirm:
+    post:
+      tags: [Usuários]
+      operationId: confirmProfileUpdate
+      summary: Confirma uma atualização pendente do perfil
+      description: >-
+        Consome o token de uso único enviado ao e-mail anterior e aplica o novo nome e/ou e-mail.
+        Quando o e-mail muda, JWTs e refresh tokens anteriores são invalidados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdateConfirmRequest'
+      responses:
+        '204':
+          description: Perfil atualizado.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /users:
     get:
       tags: [Usuários]
@@ -189,6 +210,22 @@ paths:
                   $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /users/me/password-reset:
+    post:
+      tags: [Usuários]
+      operationId: requestAuthenticatedPasswordReset
+      summary: Solicita troca de senha para a conta autenticada
+      description: >-
+        Envia ao e-mail atual o mesmo link usado na recuperação de senha. O cliente não informa o
+        endereço; ele é obtido do usuário autenticado. A nova senha é definida em
+        `/users/password-reset/confirm`.
+      security:
+        - bearerAuth: []
+      responses:
+        '202':
+          description: Solicitação recebida.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /users/me:
     get:
       tags: [Usuários]
@@ -205,6 +242,30 @@ paths:
                 $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [Usuários]
+      operationId: requestProfileUpdate
+      summary: Solicita alteração do nome e/ou e-mail
+      description: >-
+        Não altera o perfil imediatamente. Cria uma solicitação de uso único e envia o link de
+        confirmação ao e-mail atual, inclusive quando o endereço solicitado é diferente.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdateRequest'
+      responses:
+        '202':
+          description: Atualização pendente criada e confirmação enviada ao e-mail atual.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /friendships/send:
     post:
       tags: [Amizades]
@@ -1150,6 +1211,31 @@ components:
           minLength: 8
           maxLength: 72
           example: nova-senha-segura
+    ProfileUpdateRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Novo nome exibido, normalizado com remoção de espaços nas extremidades.
+          example: Ana Silva
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Novo e-mail, normalizado para minúsculas.
+          example: ana.nova@example.com
+    ProfileUpdateConfirmRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 43
+          maxLength: 43
+          description: Token opaco de uso único enviado ao e-mail anterior.
     AuthTokens:
       type: object
       required: [name, token, expiresIn, refreshToken, refreshExpiresIn]

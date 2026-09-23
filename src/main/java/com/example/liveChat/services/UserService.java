@@ -4,14 +4,17 @@ import com.example.liveChat.dto.UserLoginDTO;
 import com.example.liveChat.dto.UserLoginResponseDTO;
 import com.example.liveChat.dto.UserRegisterDTO;
 import com.example.liveChat.dto.UserResponseDTO;
+import com.example.liveChat.exceptions.InvalidRequestException;
 import com.example.liveChat.exceptions.UserAlreadyExistsException;
 import com.example.liveChat.exceptions.UserNotFoundException;
 import com.example.liveChat.models.User;
 import com.example.liveChat.repositories.UserRepository;
 import com.example.liveChat.repositories.RefreshTokenRepository;
 import com.example.liveChat.repositories.PasswordResetTokenRepository;
+import com.example.liveChat.repositories.PendingProfileUpdateRepository;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -20,6 +23,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Locale;
 
 
 @Service
@@ -41,6 +45,9 @@ public class UserService {
     private PasswordResetTokenRepository passwordResetTokenRepository;
 
     @Autowired
+    private PendingProfileUpdateRepository pendingProfileUpdateRepository;
+
+    @Autowired
     private PasswordResetPasswordPolicy passwordPolicy;
 
     public User findUserByIdOrThrow(String userId){
@@ -49,24 +56,30 @@ public class UserService {
     }
 
     public User loadUserByUsername(String email) {
-        return userRepository.findByEmail(email)
+        return userRepository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + email));
     }
 
     @Transactional
     public User register(UserRegisterDTO data){
         passwordPolicy.validate(data.password());
-        if (userRepository.findByEmail(data.email()).isPresent()) {
-            throw new UserAlreadyExistsException("A user with email " + data.email() + " already exists");
+        String email = normalizeRequiredEmail(data.email());
+        if (userRepository.findByEmailIgnoreCase(email).isPresent()) {
+            throw new UserAlreadyExistsException("A user with email " + email + " already exists");
         }
         String encryptedPassword = passwordEncoder.encode(data.password());
-        var newUser = new User(data.name(), data.email(), encryptedPassword);
+        var newUser = new User(data.name(), email, encryptedPassword);
 
-        return userRepository.save(newUser);
+        try {
+            return userRepository.saveAndFlush(newUser);
+        } catch (DataIntegrityViolationException exception) {
+            throw new UserAlreadyExistsException("A user with email " + email + " already exists");
+        }
     }
 
     public UserLoginResponseDTO login(UserLoginDTO data) {
-        var user = userRepository.findByEmail(data.email())
+        String email = data.email() == null ? "" : data.email().trim().toLowerCase(Locale.ROOT);
+        var user = userRepository.findByEmailIgnoreCase(email)
                 .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
 
         if (!passwordEncoder.matches(data.password(), user.getPassword())) {
@@ -89,12 +102,14 @@ public class UserService {
             throw new UserNotFoundException("User not found");
         }
         passwordResetTokenRepository.deleteByUserId(userId);
+        pendingProfileUpdateRepository.deleteByUserId(userId);
         refreshTokenRepository.deleteByUserId(userId);
         userRepository.deleteById(userId);
     }
 
     public List<UserResponseDTO> searchUsersPartial(String partialEmail) {
-        return userRepository.findByEmail(partialEmail)
+        if (partialEmail == null || partialEmail.isBlank()) return List.of();
+        return userRepository.findByEmailIgnoreCase(partialEmail.trim())
                 .stream()
                 .map(UserResponseDTO::forRegister)
                 .toList();
@@ -107,7 +122,7 @@ public class UserService {
 
         String email = authentication.getName();
 
-        User user = userRepository.findByEmail(email)
+        User user = userRepository.findByEmailIgnoreCase(email)
             .orElseThrow(() ->
                 new UsernameNotFoundException("User not found with email: " + email)
             );
@@ -117,6 +132,13 @@ public class UserService {
             user.getName(),
             user.getEmail()
         );
+    }
+
+    private String normalizeRequiredEmail(String email) {
+        if (email == null || email.isBlank()) {
+            throw new InvalidRequestException("Email is required");
+        }
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 
 }

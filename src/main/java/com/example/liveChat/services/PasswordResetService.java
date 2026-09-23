@@ -5,6 +5,7 @@ import com.example.liveChat.infra.mail.PasswordResetMailSender;
 import com.example.liveChat.models.PasswordResetToken;
 import com.example.liveChat.models.User;
 import com.example.liveChat.repositories.PasswordResetTokenRepository;
+import com.example.liveChat.repositories.PendingProfileUpdateRepository;
 import com.example.liveChat.repositories.UserRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
@@ -34,6 +35,7 @@ public class PasswordResetService {
     private final SecureRandom random = new SecureRandom();
     private final UserRepository userRepository;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
+    private final PendingProfileUpdateRepository pendingProfileUpdateRepository;
     private final RefreshTokenService refreshTokenService;
     private final PasswordResetMailSender mailSender;
     private final PasswordEncoder passwordEncoder;
@@ -44,6 +46,7 @@ public class PasswordResetService {
 
     public PasswordResetService(UserRepository userRepository,
                                 PasswordResetTokenRepository passwordResetTokenRepository,
+                                PendingProfileUpdateRepository pendingProfileUpdateRepository,
                                 RefreshTokenService refreshTokenService,
                                 PasswordResetMailSender mailSender,
                                 PasswordEncoder passwordEncoder,
@@ -53,6 +56,7 @@ public class PasswordResetService {
                                 @Value("${livechat.frontend.password-reset-url}") String frontendResetUrl) {
         this.userRepository = userRepository;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
+        this.pendingProfileUpdateRepository = pendingProfileUpdateRepository;
         this.refreshTokenService = refreshTokenService;
         this.mailSender = mailSender;
         this.passwordEncoder = passwordEncoder;
@@ -66,7 +70,7 @@ public class PasswordResetService {
     public void request(String email) {
         if (email == null || email.isBlank()) return;
 
-        userRepository.findByEmail(email.trim()).ifPresent(user -> {
+        userRepository.findByEmailIgnoreCase(email.trim()).ifPresent(user -> {
             String rawToken = generateToken();
             PasswordResetToken resetToken = new PasswordResetToken();
             resetToken.setTokenHash(hash(rawToken));
@@ -105,6 +109,7 @@ public class PasswordResetService {
         user.setPassword(passwordEncoder.encode(newPassword));
         user.setCredentialsVersion(user.getCredentialsVersion() + 1);
         passwordResetTokenRepository.deleteByUserId(user.getId());
+        pendingProfileUpdateRepository.deleteByUserId(user.getId());
         refreshTokenService.revokeAllForUser(user.getId());
     }
 

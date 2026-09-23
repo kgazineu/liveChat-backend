@@ -83,6 +83,8 @@ services:
       MAIL_FROM: ${MAIL_FROM:-no-reply@livechat.local}
       FRONTEND_PASSWORD_RESET_URL: ${FRONTEND_PASSWORD_RESET_URL:-http://localhost:3000/password-reset}
       PASSWORD_RESET_TOKEN_TTL: ${PASSWORD_RESET_TOKEN_TTL:-15m}
+      FRONTEND_PROFILE_UPDATE_URL: ${FRONTEND_PROFILE_UPDATE_URL:-http://localhost:3000/profile-update}
+      PROFILE_UPDATE_TOKEN_TTL: ${PROFILE_UPDATE_TOKEN_TTL:-15m}
       LIVEKIT_API_URL: http://livekit:7880
       LIVEKIT_CLIENT_URL: ${LIVEKIT_CLIENT_URL:-ws://localhost:7880}
       LIVEKIT_API_KEY: devkey
