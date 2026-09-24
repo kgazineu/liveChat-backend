@@ -90,5 +90,5 @@ jobs:
           docker compose -f compose.prod.yaml pull app
           docker compose -f compose.prod.yaml up -d --remove-orphans --wait --wait-timeout 180
           docker compose -f compose.prod.yaml ps
-          curl --fail --silent --show-error \
-            http://127.0.0.1:8080/actuator/health
+          docker compose -f compose.prod.yaml exec -T app \
+            curl --fail --silent --show-error http://127.0.0.1:8080/actuator/health
