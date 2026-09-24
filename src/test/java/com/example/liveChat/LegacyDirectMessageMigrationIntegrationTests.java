@@ -18,7 +18,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest
+@SpringBootTest(properties = "livechat.migration.legacy-direct-messages.enabled=true")
 @ActiveProfiles("test")
 class LegacyDirectMessageMigrationIntegrationTests {
     @Autowired private LegacyDirectMessageMigration migration;

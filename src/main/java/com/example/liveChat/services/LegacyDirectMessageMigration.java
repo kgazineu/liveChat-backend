@@ -7,6 +7,7 @@ import com.example.liveChat.models.User;
 import com.example.liveChat.repositories.DirectChannelRepository;
 import com.example.liveChat.repositories.DirectMessageRepository;
 import com.example.liveChat.repositories.LegacyMessageRepository;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -16,6 +17,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 
 @Component
+@ConditionalOnProperty(name = "livechat.migration.legacy-direct-messages.enabled", havingValue = "true")
 public class LegacyDirectMessageMigration {
     private final LegacyMessageRepository legacyMessageRepository;
     private final DirectChannelRepository directChannelRepository;

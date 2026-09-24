@@ -2,10 +2,13 @@ package com.example.liveChat.services;
 
 import com.example.liveChat.dto.MessageRequestDTO;
 import com.example.liveChat.dto.MessageResponseDTO;
+import com.example.liveChat.dto.PageResponseDTO;
+import com.example.liveChat.dto.PaginationRequestDTO;
 import com.example.liveChat.exceptions.DirectChannelNotFoundException;
 import com.example.liveChat.exceptions.InvalidRequestException;
 import com.example.liveChat.exceptions.ServerChannelNotFoundException;
 import com.example.liveChat.exceptions.UserNotFoundException;
+import com.example.liveChat.infra.ratelimit.RateLimiter;
 import com.example.liveChat.models.ChannelMessage;
 import com.example.liveChat.models.ChannelType;
 import com.example.liveChat.models.DirectChannel;
@@ -23,11 +26,13 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
+import java.time.Duration;
 
 @Service
 public class MessageService {
     private static final int MAX_CONTENT_LENGTH = 4_000;
+    private static final Duration MESSAGE_RATE_WINDOW = Duration.ofMinutes(1);
+    private static final Duration MESSAGE_BURST_WINDOW = Duration.ofSeconds(5);
 
     private final DirectChannelRepository directChannelRepository;
     private final DirectMessageRepository directMessageRepository;
@@ -36,6 +41,7 @@ public class MessageService {
     private final ServerMemberRepository serverMemberRepository;
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final RateLimiter rateLimiter;
 
     public MessageService(DirectChannelRepository directChannelRepository,
                           DirectMessageRepository directMessageRepository,
@@ -43,7 +49,8 @@ public class MessageService {
                           ChannelMessageRepository channelMessageRepository,
                           ServerMemberRepository serverMemberRepository,
                           UserRepository userRepository,
-                          SimpMessagingTemplate messagingTemplate) {
+                          SimpMessagingTemplate messagingTemplate,
+                          RateLimiter rateLimiter) {
         this.directChannelRepository = directChannelRepository;
         this.directMessageRepository = directMessageRepository;
         this.serverChannelRepository = serverChannelRepository;
@@ -51,12 +58,14 @@ public class MessageService {
         this.serverMemberRepository = serverMemberRepository;
         this.userRepository = userRepository;
         this.messagingTemplate = messagingTemplate;
+        this.rateLimiter = rateLimiter;
     }
 
     @Transactional
     public MessageResponseDTO sendDirectMessage(String senderEmail, String channelId, MessageRequestDTO request) {
         User sender = getUser(senderEmail);
         DirectChannel directChannel = getDirectChannelForParticipant(channelId, sender);
+        checkMessageRateLimits(sender.getId());
         DirectMessage message = directMessageRepository.save(new DirectMessage(directChannel, sender, contentOf(request)));
         MessageResponseDTO response = MessageResponseDTO.from(message);
         notifyUser(directChannel.getParticipantOne(), response);
@@ -65,12 +74,13 @@ public class MessageService {
     }
 
     @Transactional(readOnly = true)
-    public List<MessageResponseDTO> listDirectMessages(String userEmail, String channelId) {
+    public PageResponseDTO<MessageResponseDTO> listDirectMessages(String userEmail, String channelId,
+                                                                   PaginationRequestDTO pagination) {
         User user = getUser(userEmail);
         getDirectChannelForParticipant(channelId, user);
-        return directMessageRepository.findByDirectChannelIdOrderByCreatedAtAscIdAsc(channelId).stream()
-                .map(MessageResponseDTO::from)
-                .toList();
+        return PageResponseDTO.from(directMessageRepository
+                .findByDirectChannelIdOrderByCreatedAtDescIdDesc(channelId, pagination.toPageable())
+                .map(MessageResponseDTO::from));
     }
 
     @Transactional
@@ -78,6 +88,7 @@ public class MessageService {
                                                   MessageRequestDTO request) {
         User sender = getUser(senderEmail);
         ServerChannel textChannel = getTextChannelForMember(serverId, channelId, sender);
+        checkMessageRateLimits(sender.getId());
         ChannelMessage message = channelMessageRepository.save(new ChannelMessage(textChannel, sender, contentOf(request)));
         MessageResponseDTO response = MessageResponseDTO.from(message);
         serverMemberRepository.findByServerId(serverId)
@@ -86,12 +97,13 @@ public class MessageService {
     }
 
     @Transactional(readOnly = true)
-    public List<MessageResponseDTO> listChannelMessages(String userEmail, String serverId, String channelId) {
+    public PageResponseDTO<MessageResponseDTO> listChannelMessages(String userEmail, String serverId, String channelId,
+                                                                    PaginationRequestDTO pagination) {
         User user = getUser(userEmail);
         getTextChannelForMember(serverId, channelId, user);
-        return channelMessageRepository.findByChannelIdOrderByCreatedAtAscIdAsc(channelId).stream()
-                .map(MessageResponseDTO::from)
-                .toList();
+        return PageResponseDTO.from(channelMessageRepository
+                .findByChannelIdOrderByCreatedAtDescIdDesc(channelId, pagination.toPageable())
+                .map(MessageResponseDTO::from));
     }
 
     private User getUser(String email) {
@@ -121,6 +133,11 @@ public class MessageService {
             throw new AccessDeniedException("You are not a member of this server");
         }
         return channel;
+    }
+
+    private void checkMessageRateLimits(String userId) {
+        rateLimiter.check("message-user", userId, 60, MESSAGE_RATE_WINDOW);
+        rateLimiter.check("message-burst-user", userId, 10, MESSAGE_BURST_WINDOW);
     }
 
     private String contentOf(MessageRequestDTO request) {

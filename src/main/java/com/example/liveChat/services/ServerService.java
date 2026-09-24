@@ -4,6 +4,8 @@ import com.example.liveChat.dto.ChannelResponseDTO;
 import com.example.liveChat.dto.CreateChannelRequestDTO;
 import com.example.liveChat.dto.CreateServerInviteRequestDTO;
 import com.example.liveChat.dto.CreateServerRequestDTO;
+import com.example.liveChat.dto.PageResponseDTO;
+import com.example.liveChat.dto.PaginationRequestDTO;
 import com.example.liveChat.dto.ServerInviteEventDTO;
 import com.example.liveChat.dto.ServerInviteResponseDTO;
 import com.example.liveChat.dto.ServerMemberEventDTO;
@@ -27,6 +29,7 @@ import com.example.liveChat.repositories.ServerMemberRepository;
 import com.example.liveChat.repositories.ServerRepository;
 import com.example.liveChat.repositories.UserRepository;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -83,13 +86,16 @@ public class ServerService {
     }
 
     @Transactional(readOnly = true)
-    public List<ServerMemberResponseDTO> listMembers(String serverId, User user) {
+    public PageResponseDTO<ServerMemberResponseDTO> listMembers(String serverId, User user,
+                                                                 PaginationRequestDTO pagination) {
         requireActive(user);
         getServer(serverId);
         getMember(serverId, user);
-        return serverMemberRepository.findByServerIdOrderByJoinedAtAscIdAsc(serverId).stream()
-                .map(ServerMemberResponseDTO::from)
-                .toList();
+        var pageable = pagination.toPageable(
+                Sort.by(Sort.Order.asc("joinedAt"), Sort.Order.asc("id")));
+        return PageResponseDTO.from(serverMemberRepository
+                .findByServerIdAndUserDeletedAtIsNull(serverId, pageable)
+                .map(ServerMemberResponseDTO::from));
     }
 
     @Transactional
@@ -110,13 +116,15 @@ public class ServerService {
     }
 
     @Transactional(readOnly = true)
-    public List<ChannelResponseDTO> listChannels(String serverId, User user) {
+    public PageResponseDTO<ChannelResponseDTO> listChannels(String serverId, User user,
+                                                             PaginationRequestDTO pagination) {
         requireActive(user);
         getServer(serverId);
         getMember(serverId, user);
-        return serverChannelRepository.findByServerIdOrderByPositionAscIdAsc(serverId).stream()
-                .map(ChannelResponseDTO::from)
-                .toList();
+        var pageable = pagination.toPageable(
+                Sort.by(Sort.Order.asc("position"), Sort.Order.asc("id")));
+        return PageResponseDTO.from(serverChannelRepository.findByServerId(serverId, pageable)
+                .map(ChannelResponseDTO::from));
     }
 
     @Transactional

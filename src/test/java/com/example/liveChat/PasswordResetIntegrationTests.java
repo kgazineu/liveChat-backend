@@ -20,6 +20,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.nio.charset.StandardCharsets;
@@ -30,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -49,6 +52,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 @AutoConfigureMockMvc
 class PasswordResetIntegrationTests {
+    private static final AtomicInteger CLIENT_SEQUENCE = new AtomicInteger();
     @Autowired private MockMvc mvc;
     @Autowired private ObjectMapper mapper;
     @Autowired private UserRepository users;
@@ -57,13 +61,18 @@ class PasswordResetIntegrationTests {
     @Autowired private RefreshTokenService refreshTokenService;
     @Autowired private PasswordResetService passwordResetService;
     @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     @MockitoBean
     private PasswordResetMailSender mailSender;
 
+    private String clientIp;
+
     @BeforeEach
     void resetMailSender() {
         reset(mailSender);
+        int sequence = CLIENT_SEQUENCE.incrementAndGet();
+        clientIp = "10.20." + (sequence / 250) + "." + (sequence % 250 + 1);
     }
 
     @Test
@@ -89,6 +98,36 @@ class PasswordResetIntegrationTests {
     }
 
     @Test
+    void sendsMailOnlyAfterTheTokenTransactionCommits() {
+        User user = user();
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+        transaction.executeWithoutResult(status -> {
+            passwordResetService.request(user.getEmail());
+            verifyNoInteractions(mailSender);
+            assertThat(passwordResetTokens.findAll())
+                    .anyMatch(token -> token.getUser().getId().equals(user.getId()));
+        });
+
+        verify(mailSender).sendPasswordReset(eq(user.getEmail()), org.mockito.ArgumentMatchers.anyString());
+    }
+
+    @Test
+    void rollbackDoesNotSendMailOrPersistTheToken() {
+        User user = user();
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+        transaction.executeWithoutResult(status -> {
+            passwordResetService.request(user.getEmail());
+            verifyNoInteractions(mailSender);
+            status.setRollbackOnly();
+        });
+
+        verifyNoInteractions(mailSender);
+        assertThat(passwordResetTokens.findAll()).noneMatch(token -> token.getUser().getId().equals(user.getId()));
+    }
+
+    @Test
     void mailFailureStillReturnsAcceptedAndDoesNotLeaveAnUnsentToken() throws Exception {
         User user = user();
         doThrow(new IllegalStateException("SMTP unavailable"))
@@ -105,7 +144,10 @@ class PasswordResetIntegrationTests {
         String firstResetToken = requestToken(user);
         String secondResetToken = requestToken(user);
         assertThat(passwordResetTokens.findAll()).filteredOn(token -> token.getUser().getId().equals(user.getId()))
-                .hasSize(2);
+                .singleElement()
+                .extracting(PasswordResetToken::getTokenHash)
+                .isEqualTo(hash(secondResetToken));
+        confirm(firstResetToken, "another-password").andExpect(status().isBadRequest());
 
         mvc.perform(post("/users/password-reset/confirm").contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(Map.of("token", secondResetToken, "password", "new-password"))))
@@ -187,6 +229,10 @@ class PasswordResetIntegrationTests {
     private org.springframework.test.web.servlet.ResultActions request(String email) throws Exception {
         Map<String, String> body = email == null ? Map.of() : Map.of("email", email);
         return mvc.perform(post("/users/password-reset/request").contentType(MediaType.APPLICATION_JSON)
+                .with(request -> {
+                    request.setRemoteAddr(clientIp);
+                    return request;
+                })
                 .content(mapper.writeValueAsString(body)));
     }
 

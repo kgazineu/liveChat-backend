@@ -17,7 +17,7 @@ As funcionalidades atuais são:
 - cadastro, login, JWT de acesso e refresh token;
 - recuperação e troca autenticada de senha por e-mail com token opaco de uso único, expiração configurável, invalidação dos refresh tokens e rejeição dos JWTs anteriores à troca;
 - consulta, atualização confirmada e soft delete da própria conta; alterações de nome ou e-mail ficam pendentes até a confirmação enviada ao endereço anterior; ao desativar a conta, os dados pessoais são anonimizados e o histórico de mensagens é preservado;
-- solicitações de amizade e lista de amigos, com eventos privados STOMP de criação, aceite e rejeição;
+- solicitações de amizade e lista de amigos, com eventos privados STOMP de criação, aceite e rejeição; uma solicitação rejeitada só pode ser reaberta após 24 horas;
 - mensagens persistidas em canais privados 1:1 e em canais `TEXT` de servidor;
 - WebSocket nativo em `/ws`, com STOMP e autenticação por `Authorization: Bearer <JWT>` no frame `CONNECT`;
 - envio STOMP para canais privados ou de servidor e recebimento em `/user/queue/messages` pelos participantes autorizados;
@@ -25,7 +25,7 @@ As funcionalidades atuais são:
 - canais de servidor dos tipos `TEXT` e `VOICE`;
 - convites direcionados a amigos aceitos, com aceite explícito do destinatário e eventos privados STOMP de criação e aceite;
 - listagem autorizada dos membros de cada servidor e evento `server.member.joined` após a entrada;
-- canais privados 1:1 permanentes, com criação idempotente, listagem e consulta limitada aos dois participantes.
+- canais privados 1:1 permanentes, com criação idempotente, listagem e consulta limitada aos dois participantes; um canal novo exige amizade aceita, enquanto um canal já existente continua acessível aos participantes;
 - presença efêmera de mídia em canais `VOICE` de servidor e em canais privados 1:1, com entrada, saída, troca atômica de canal, participantes atuais e estado de microfone, câmera e tela; cada canal de voz de servidor aceita até cinco participantes simultâneos;
 - eventos STOMP de presença em `/user/queue/media-presence` para os participantes autorizados;
 - Redis para manter sessões de presença e preservar o estado `reconnecting` por 30 segundos após uma desconexão inesperada;
@@ -33,7 +33,18 @@ As funcionalidades atuais são:
 
 Ainda não há transmissão de áudio, câmera ou tela pelo cliente: a infraestrutura e as credenciais de entrada no LiveKit estão disponíveis, mas o cliente ainda precisa conectar-se à sala, publicar suas faixas e consumir as faixas remotas.
 
-As mensagens privadas que existiam antes dos canais 1:1 são migradas uma única vez na inicialização para o canal privado do respectivo par de usuários. A origem é mantida como referência interna de migração, evitando duplicação em reinicializações.
+A migração das mensagens privadas legadas para canais 1:1 é opcional e fica desativada por padrão (`LEGACY_DIRECT_MESSAGES_MIGRATION_ENABLED=false`). Quando habilitada deliberadamente, é executada na inicialização e mantém a origem como referência interna para evitar duplicação em reinicializações.
+
+### Hardening implementado
+
+- [x] **Rate limiting distribuído e fail-closed.** Em perfis diferentes de teste, o Redis executa atomicamente `INCR`, leitura de TTL e definição da expiração por script Lua. Falhas ou respostas inválidas do Redis bloqueiam a operação com `503`, em vez de liberar tráfego sem controle. Respostas por excesso usam `429` e `Retry-After` em segundos.
+- [x] **Limites de abuso nas superfícies sensíveis.** Cadastro: 5/h por IP; login: 10/5 min por IP e 5/5 min por conta; recuperação pública: 3/h por IP e 2/h por e-mail; recuperação autenticada: 2/h por usuário e por e-mail; criação ou reabertura de amizade: 10/h por remetente e 20/dia por destinatário; mensagens REST/STOMP: 60/min e burst de 10/5 s por usuário; `CONNECT` STOMP: 10/5 min por usuário.
+- [x] **PII minimizada nos contratos públicos.** `User`, membros de servidor e eventos sociais públicos não expõem e-mail. Somente `GET /users/me`, autenticado e restrito à própria conta, retorna o e-mail em `CurrentUser`.
+- [x] **Paginação limitada e estável.** `GET /users`, `/friendships`, `/friendships/requests`, `/servers/{serverId}/members`, `/servers/{serverId}/channels` e os dois históricos de mensagens retornam `PageResponseDTO`, com `page >= 0` (padrão 0) e `size` entre 1 e 100 (padrão 20). Históricos retornam as mensagens mais recentes primeiro.
+- [x] **Proteções sociais.** Novo canal privado exige amizade aceita, sem revogar o acesso a um canal preexistente; relacionamentos rejeitados têm cooldown de 24 horas antes da reabertura da solicitação.
+- [x] **Recuperação por e-mail endurecida.** O token opaco é armazenado apenas como hash, substitui qualquer token anterior da conta, expira e só pode ser consumido uma vez. O SMTP da recuperação roda após o commit; falha de envio remove o token inutilizável. Conexão, leitura e escrita SMTP possuem timeout padrão de 5 segundos.
+- [x] **Origens explícitas.** CORS HTTP e handshake WebSocket compartilham a allowlist `ALLOWED_ORIGINS`; configuração vazia ou com curinga `*` impede a inicialização.
+- [x] **Inicialização e exposição limitadas.** A migração legada permanece desligada por padrão. O Tomcat limita threads a 100, conexões a 1000 e fila de aceite a 100 por padrão; no Compose de produção, a porta da aplicação é publicada em loopback (`127.0.0.1`) salvo override explícito de `APP_BIND_ADDRESS`.
 
 ## Experiência desejada
 
@@ -58,7 +69,7 @@ Na primeira versão, as permissões podem ser simples: proprietário e membro. P
 | Entrada no servidor | Um membro convida diretamente um amigo com amizade aceita. O destinatário lista o convite e confirma a ação em “Aceitar convite”. Apenas essa confirmação adiciona a pessoa ao servidor. |
 | Canal de mídia ativo | Cada usuário pode participar de somente um canal de voz por vez. Ao entrar em outro canal, o sistema sai do anterior de forma atômica. |
 | Reconexão | A presença será preservada por 30 segundos após uma desconexão inesperada. Se o usuário retornar ao mesmo canal nesse prazo, a sessão será reativada; passado o prazo, a saída será definitiva. |
-| Redis | Será incluído junto com a camada de mídia. Ele manterá sessões de mídia e reconexão com TTL de 30 segundos e poderá servir ao modo distribuído do LiveKit quando necessário. |
+| Redis | Mantém sessões de mídia e reconexão com TTL de 30 segundos e também sustenta o rate limiting distribuído por operação atômica. Indisponibilidade do limitador é tratada de forma fail-closed. |
 | Canais privados 1:1 | São conversas permanentes entre exatamente dois usuários, independentes de um servidor. Elas permitem mensagens, áudio, câmera e compartilhamento de tela em tempo real. Somente os dois participantes podem acessá-las. |
 | Canais de texto | Fazem parte do modelo de servidor desde o início. As mensagens privadas atuais serão remodeladas como mensagens de canal privado 1:1; mensagens de grupos serão vinculadas a canais de texto do servidor. |
 | Exclusão de conta | Usar soft delete: anonimizar nome, e-mail e credenciais, remover vínculos sociais ativos e memberships, mas preservar mensagens e canais privados como histórico. Servidores passam ao membro ativo mais antigo; sem sucessor, o servidor e suas dependências são removidos. |
@@ -240,8 +251,10 @@ Esta seção consolida as pendências do produto inteiro. A prioridade é termin
 - [ ] **Garantir atomicidade distribuída da regra “um canal por usuário”.** O bloqueio atual protege uma única instância da aplicação. Antes de executar múltiplas réplicas do backend, a troca de canal e o limite de cinco participantes devem usar operação atômica no Redis, lock distribuído ou script Lua.
 - [ ] **Emitir convite compartilhável para servidor.** O fluxo direcionado e o aceite explícito já existem, mas ainda falta um token ou URL de convite que não exponha nem dependa diretamente do identificador interno do registro.
 - [ ] **Completar os eventos de domínio propostos.** `server.member.joined`, solicitações de amizade e convites direcionados já são publicados em filas privadas após o commit. Ainda falta `server.channel.created` e, no frontend, assinar `/user/queue/friendships`, `/user/queue/server-invites` e `/user/queue/server-members`, mantendo as consultas REST como reconciliação após conexão ou queda.
-- [ ] **Adicionar paginação aos históricos de mensagens.** As consultas de canais privados e canais de texto precisam de cursor ou paginação por data/identificador para não carregar todo o histórico conforme as conversas crescerem.
-- [ ] **Aplicar limites e proteção contra abuso.** Limitar tamanho e frequência de mensagens, login, solicitação de recuperação de senha, criação de convites e emissão de credenciais de mídia. Tokens de recuperação, tokens LiveKit e segredos nunca devem aparecer em logs.
+- [x] **Adicionar paginação às listagens de crescimento contínuo.** Usuários, amizades, solicitações pendentes, membros, canais e os dois históricos de mensagens usam `PageResponseDTO`, limites uniformes de página e ordenação determinística; mensagens são listadas da mais recente para a mais antiga.
+- [x] **Aplicar a primeira camada de limites e proteção contra abuso.** Cadastro, login, recuperação pública e autenticada, solicitações de amizade, mensagens e `CONNECT` STOMP possuem limites no Redis; mensagens também são limitadas a 4.000 caracteres. O limitador é atômico e fail-closed.
+- [ ] **Completar limites nas demais superfícies.** Ainda falta definir proteção específica para criação de convites e emissão de credenciais de mídia. Tokens de recuperação, tokens LiveKit e segredos nunca devem aparecer em logs.
+- [ ] **Integrar Cloudflare Turnstile de forma coordenada com o frontend.** O cliente deverá obter e enviar o token nos fluxos públicos definidos, e o backend deverá validá-lo no servidor sem substituir os limites atuais. A ativação deve ocorrer em conjunto para não quebrar cadastro, login ou recuperação.
 - [x] **Implementar recuperação e troca autenticada de senha no backend.** A solicitação pública não revela se a conta existe; usuários autenticados também podem solicitar a troca sem informar o próprio e-mail. O token opaco é armazenado somente como hash SHA-256 e pode ser usado uma vez. A confirmação troca a senha, remove refresh tokens e invalida JWTs anteriores inclusive em novos `CONNECT` STOMP.
 - [x] **Implementar atualização segura de nome e e-mail.** `PUT /users/me` cria uma alteração pendente e envia um token de uso único ao e-mail atual. Somente a confirmação aplica os dados; a troca de e-mail invalida as credenciais anteriores e conflitos são revalidados no momento da aplicação.
 - [x] **Implementar soft delete seguro de conta.** A conta é anonimizada e desativada, tokens e vínculos sociais ativos são removidos, sessões de mídia são encerradas após o commit e o histórico permanece associado ao tombstone “Usuário excluído”. Propriedade de servidores é transferida ao membro ativo mais antigo; servidores sem sucessor são removidos.

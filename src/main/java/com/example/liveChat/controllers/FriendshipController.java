@@ -2,13 +2,15 @@ package com.example.liveChat.controllers;
 
 import com.example.liveChat.dto.FriendshipRequestDTO;
 import com.example.liveChat.dto.FriendshipResponseDTO;
+import com.example.liveChat.dto.PageResponseDTO;
+import com.example.liveChat.dto.PaginationRequestDTO;
 import com.example.liveChat.dto.UserResponseDTO;
 import com.example.liveChat.models.User;
 import com.example.liveChat.services.FriendshipService;
 import com.example.liveChat.infra.RestErrorMessage;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.media.ArraySchema;
+
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -20,7 +22,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 
 @RestController
 @RequestMapping("/friendships")
@@ -82,35 +83,39 @@ public class FriendshipController {
     @GetMapping
     @Operation(summary = "Lista os amigos do usuário autenticado")
     @ApiResponse(responseCode = "200", description = "Amigos encontrados",
-            content = @Content(array = @ArraySchema(schema = @Schema(implementation = UserResponseDTO.class))))
+            content = @Content(schema = @Schema(implementation = PageResponseDTO.class)))
+    @ApiResponse(responseCode = "400", description = "Paginação inválida",
+            content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
     @ApiResponse(responseCode = "401", description = "JWT ausente ou inválido")
-    public ResponseEntity<List<UserResponseDTO>> getMyFriends(
-            @Parameter(hidden = true) @AuthenticationPrincipal User loggedUser) {
-        var friends = friendshipService.getUserFriends(loggedUser.getId());
-        var response = friends.stream()
-                .map(UserResponseDTO::forRegister)
-                .toList();
-
-        return ResponseEntity.ok(response);
+    public ResponseEntity<PageResponseDTO<UserResponseDTO>> getMyFriends(
+            @Parameter(hidden = true) @AuthenticationPrincipal User loggedUser,
+            @Parameter(description = "Índice da página, iniciado em zero",
+                    schema = @Schema(type = "integer", defaultValue = "0", minimum = "0"))
+            @RequestParam(defaultValue = "0") String page,
+            @Parameter(description = "Itens por página (máximo 100)",
+                    schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100"))
+            @RequestParam(defaultValue = "20") String size) {
+        return ResponseEntity.ok(friendshipService.getUserFriends(
+                loggedUser.getId(), PaginationRequestDTO.from(page, size)));
     }
 
     @GetMapping("/requests")
     @Operation(summary = "Lista solicitações de amizade pendentes", description = "Retorna solicitações recebidas pelo usuário autenticado.")
     @ApiResponse(responseCode = "200", description = "Solicitações pendentes",
-            content = @Content(array = @ArraySchema(schema = @Schema(implementation = FriendshipResponseDTO.class))))
+            content = @Content(schema = @Schema(implementation = PageResponseDTO.class)))
+    @ApiResponse(responseCode = "400", description = "Paginação inválida",
+            content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
     @ApiResponse(responseCode = "401", description = "JWT ausente ou inválido")
-    public ResponseEntity<List<FriendshipResponseDTO>> getPendingRequests(
-            @Parameter(hidden = true) @AuthenticationPrincipal User loggedUser) {
-        var requests = friendshipService.getPendingRequests(loggedUser.getId());
-        var response = requests.stream()
-                .map(request -> new FriendshipResponseDTO(
-                        request.getId(),
-                        request.getRequester().getName(),
-                        request.getRequester().getId()
-                ))
-                .toList();
-
-        return ResponseEntity.ok(response);
+    public ResponseEntity<PageResponseDTO<FriendshipResponseDTO>> getPendingRequests(
+            @Parameter(hidden = true) @AuthenticationPrincipal User loggedUser,
+            @Parameter(description = "Índice da página, iniciado em zero",
+                    schema = @Schema(type = "integer", defaultValue = "0", minimum = "0"))
+            @RequestParam(defaultValue = "0") String page,
+            @Parameter(description = "Itens por página (máximo 100)",
+                    schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100"))
+            @RequestParam(defaultValue = "20") String size) {
+        return ResponseEntity.ok(friendshipService.getPendingRequests(
+                loggedUser.getId(), PaginationRequestDTO.from(page, size)));
     }
 
 }

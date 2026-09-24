@@ -13,6 +13,7 @@ import com.example.liveChat.repositories.FriendshipRepository;
 import com.example.liveChat.repositories.UserRepository;
 import com.example.liveChat.services.FriendshipService;
 import com.example.liveChat.services.ServerService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +45,7 @@ class SocialNotificationIntegrationTests {
     @Autowired private FriendshipRepository friendships;
     @Autowired private UserRepository users;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private ObjectMapper objectMapper;
     @MockitoBean private SimpMessagingTemplate messagingTemplate;
 
     @Test
@@ -152,7 +154,11 @@ class SocialNotificationIntegrationTests {
         verify(messagingTemplate).convertAndSendToUser(eq(invitee.getEmail()), eq("/queue/server-members"),
                 memberPayloads.capture());
         assertThat(memberPayloads.getAllValues())
-                .allSatisfy(payload -> assertThat(payload.type()).isEqualTo("server.member.joined"));
+                .allSatisfy(payload -> {
+                    assertThat(payload.type()).isEqualTo("server.member.joined");
+                    assertThat(objectMapper.valueToTree(payload).has("userEmail")).isFalse();
+                    assertThat(objectMapper.valueToTree(payload.member()).has("userEmail")).isFalse();
+                });
         verify(messagingTemplate, never()).convertAndSendToUser(anyString(), eq("/user/queue/server-members"), any());
     }
 

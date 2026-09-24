@@ -76,10 +76,11 @@ class ServerControllerIntegrationTests {
 
         mvc.perform(get("/servers/" + serverId + "/channels").header("Authorization", bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].name").value("geral"))
-                .andExpect(jsonPath("$[0].type").value("TEXT"))
-                .andExpect(jsonPath("$[1].name").value("sala"))
-                .andExpect(jsonPath("$[1].type").value("VOICE"));
+                .andExpect(jsonPath("$.content[0].name").value("geral"))
+                .andExpect(jsonPath("$.content[0].type").value("TEXT"))
+                .andExpect(jsonPath("$.content[1].name").value("sala"))
+                .andExpect(jsonPath("$.content[1].type").value("VOICE"))
+                .andExpect(jsonPath("$.totalElements").value(2));
     }
 
     @Test
@@ -168,17 +169,18 @@ class ServerControllerIntegrationTests {
 
         mvc.perform(get("/servers/" + serverId + "/members").header("Authorization", bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].userId").value(owner.getId()))
-                .andExpect(jsonPath("$[0].userName").value(owner.getName()))
-                .andExpect(jsonPath("$[0].userEmail").value(owner.getEmail()))
-                .andExpect(jsonPath("$[0].role").value("OWNER"))
-                .andExpect(jsonPath("$[0].joinedAt").exists())
-                .andExpect(jsonPath("$[1].userId").value(friend.getId()))
-                .andExpect(jsonPath("$[1].userName").value(friend.getName()))
-                .andExpect(jsonPath("$[1].userEmail").value(friend.getEmail()))
-                .andExpect(jsonPath("$[1].role").value("MEMBER"))
-                .andExpect(jsonPath("$[1].joinedAt").exists())
-                .andExpect(jsonPath("$[2]").doesNotExist());
+                .andExpect(jsonPath("$.content[0].userId").value(owner.getId()))
+                .andExpect(jsonPath("$.content[0].userName").value(owner.getName()))
+                .andExpect(jsonPath("$.content[0].userEmail").doesNotExist())
+                .andExpect(jsonPath("$.content[0].role").value("OWNER"))
+                .andExpect(jsonPath("$.content[0].joinedAt").exists())
+                .andExpect(jsonPath("$.content[1].userId").value(friend.getId()))
+                .andExpect(jsonPath("$.content[1].userName").value(friend.getName()))
+                .andExpect(jsonPath("$.content[1].userEmail").doesNotExist())
+                .andExpect(jsonPath("$.content[1].role").value("MEMBER"))
+                .andExpect(jsonPath("$.content[1].joinedAt").exists())
+                .andExpect(jsonPath("$.content[2]").doesNotExist())
+                .andExpect(jsonPath("$.totalElements").value(2));
         mvc.perform(get("/servers/" + serverId + "/members"))
                 .andExpect(status().isUnauthorized());
     }

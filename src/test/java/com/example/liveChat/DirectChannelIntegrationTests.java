@@ -1,7 +1,10 @@
 package com.example.liveChat;
 
 import com.example.liveChat.infra.security.TokenService;
+import com.example.liveChat.models.Friendship;
+import com.example.liveChat.models.FriendshipStatus;
 import com.example.liveChat.models.User;
+import com.example.liveChat.repositories.FriendshipRepository;
 import com.example.liveChat.repositories.UserRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,12 +34,14 @@ class DirectChannelIntegrationTests {
     @Autowired private ObjectMapper mapper;
     @Autowired private TokenService tokens;
     @Autowired private UserRepository users;
+    @Autowired private FriendshipRepository friendships;
     @Autowired private PasswordEncoder passwordEncoder;
 
     @Test
     void eitherParticipantGetsTheSamePrivateChannelAndCanListIt() throws Exception {
         User first = user();
         User second = user();
+        acceptedFriendship(first, second);
 
         String created = mvc.perform(post("/direct-channels").header("Authorization", bearer(first))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -76,6 +81,28 @@ class DirectChannelIntegrationTests {
     }
 
     @Test
+    void requiresAcceptedFriendshipOnlyForNewChannelsAndKeepsExistingHistoryAccessible() throws Exception {
+        User first = user();
+        User second = user();
+
+        mvc.perform(post("/direct-channels").header("Authorization", bearer(first))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of("participantId", second.getId()))))
+                .andExpect(status().isForbidden());
+
+        Friendship friendship = acceptedFriendship(first, second);
+        String channelId = createChannel(first, second);
+        friendship.setStatus(FriendshipStatus.REJECTED);
+        friendships.save(friendship);
+
+        mvc.perform(post("/direct-channels").header("Authorization", bearer(second))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of("participantId", first.getId()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("id").value(channelId));
+    }
+
+    @Test
     void rejectsMissingSelfAndUnknownParticipants() throws Exception {
         User currentUser = user();
 
@@ -93,6 +120,9 @@ class DirectChannelIntegrationTests {
     }
 
     private String createChannel(User owner, User participant) throws Exception {
+        if (!friendships.areFriends(owner, participant)) {
+            acceptedFriendship(owner, participant);
+        }
         String body = mvc.perform(post("/direct-channels").header("Authorization", bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(Map.of("participantId", participant.getId()))))
@@ -101,6 +131,12 @@ class DirectChannelIntegrationTests {
         JsonNode json = mapper.readTree(body);
         assertThat(json.get("id").asText()).isNotBlank();
         return json.get("id").asText();
+    }
+
+    private Friendship acceptedFriendship(User requester, User addressee) {
+        Friendship friendship = new Friendship(requester, addressee);
+        friendship.setStatus(FriendshipStatus.ACCEPTED);
+        return friendships.save(friendship);
     }
 
     private String bearer(User user) {

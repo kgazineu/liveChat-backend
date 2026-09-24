@@ -117,7 +117,7 @@ class AccountSoftDeleteIntegrationTests {
 
         mvc.perform(get(messagePath(server.getId(), channel.getId())).header("Authorization", bearer(oldestMember)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].authorName").value("Usuário excluído"));
+                .andExpect(jsonPath("$.content[0].authorName").value("Usuário excluído"));
         mvc.perform(post("/servers/" + server.getId() + "/channels").header("Authorization", bearer(oldestMember))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(Map.of("name", "novo", "type", "TEXT"))))
@@ -170,7 +170,7 @@ class AccountSoftDeleteIntegrationTests {
         mvc.perform(get("/direct-channels/" + directChannel.getId() + "/messages")
                         .header("Authorization", bearer(survivor)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].authorName").value("Usuário excluído"));
+                .andExpect(jsonPath("$.content[0].authorName").value("Usuário excluído"));
     }
 
     @Test
@@ -237,7 +237,7 @@ class AccountSoftDeleteIntegrationTests {
                 .andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
         mvc.perform(get("/users").header("Authorization", bearer(activeUser)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.id == '" + deletedUser.getId() + "')]").isEmpty());
+                .andExpect(jsonPath("$.content[?(@.id == '" + deletedUser.getId() + "')]").isEmpty());
         mvc.perform(post("/direct-channels").header("Authorization", bearer(activeUser))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(Map.of("participantId", deletedUser.getId()))))

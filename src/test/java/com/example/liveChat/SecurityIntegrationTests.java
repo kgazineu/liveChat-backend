@@ -49,6 +49,21 @@ class SecurityIntegrationTests {
     @Autowired private PasswordEncoder passwordEncoder;
 
     @Test
+    void corsAllowsOnlyTheConfiguredHttpOrigin() throws Exception {
+        mvc.perform(options("/users/login")
+                        .header("Origin", "http://frontend.test")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://frontend.test"));
+
+        mvc.perform(options("/users/login")
+                        .header("Origin", "https://untrusted.example")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+    }
+
+    @Test
     void loginAndRefreshRotateTokensAndRejectReuse() throws Exception {
         User user = user();
         String result = mvc.perform(post("/users/login").contentType(MediaType.APPLICATION_JSON)
@@ -65,7 +80,9 @@ class SecurityIntegrationTests {
         assertThat(refreshed.get("refreshToken").asText()).isNotEqualTo(rawToken);
         assertThat(refreshed.get("token").asText()).isNotEqualTo(login.get("token").asText());
         mvc.perform(get("/users/me").header("Authorization", "Bearer " + refreshed.get("token").asText()))
-                .andExpect(status().isOk()).andExpect(jsonPath("id").value(user.getId()));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("id").value(user.getId()))
+                .andExpect(jsonPath("email").value(user.getEmail()));
         refreshUnauthorized(rawToken);
         // Neither token can substitute for the other kind of credential.
         refreshUnauthorized(login.get("token").asText());
@@ -167,7 +184,7 @@ class SecurityIntegrationTests {
         mvc.perform(post("/users/register").contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(registration)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value(email.toLowerCase()));
+                .andExpect(jsonPath("$.email").doesNotExist());
         mvc.perform(post("/users/register").contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(Map.of(
                                 "name", "Duplicate", "email", email.toLowerCase(), "password", "password"))))

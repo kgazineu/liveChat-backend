@@ -2,6 +2,8 @@ package com.example.liveChat.repositories;
 
 import com.example.liveChat.models.ServerMember;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 
@@ -16,6 +18,8 @@ public interface ServerMemberRepository extends JpaRepository<ServerMember, Long
     List<ServerMember> findByServerId(String serverId);
 
     List<ServerMember> findByServerIdOrderByJoinedAtAscIdAsc(String serverId);
+
+    Page<ServerMember> findByServerIdAndUserDeletedAtIsNull(String serverId, Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<ServerMember> findFirstByServerIdAndUserIdNotAndUserDeletedAtIsNullOrderByJoinedAtAscIdAsc(

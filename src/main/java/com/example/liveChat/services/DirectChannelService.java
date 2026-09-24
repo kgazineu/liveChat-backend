@@ -8,6 +8,7 @@ import com.example.liveChat.exceptions.UserNotFoundException;
 import com.example.liveChat.models.DirectChannel;
 import com.example.liveChat.models.User;
 import com.example.liveChat.repositories.DirectChannelRepository;
+import com.example.liveChat.repositories.FriendshipRepository;
 import com.example.liveChat.repositories.UserRepository;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -19,10 +20,13 @@ import java.util.List;
 public class DirectChannelService {
     private final DirectChannelRepository directChannelRepository;
     private final UserRepository userRepository;
+    private final FriendshipRepository friendshipRepository;
 
-    public DirectChannelService(DirectChannelRepository directChannelRepository, UserRepository userRepository) {
+    public DirectChannelService(DirectChannelRepository directChannelRepository, UserRepository userRepository,
+                                FriendshipRepository friendshipRepository) {
         this.directChannelRepository = directChannelRepository;
         this.userRepository = userRepository;
+        this.friendshipRepository = friendshipRepository;
     }
 
     @Transactional
@@ -45,8 +49,12 @@ public class DirectChannelService {
 
         return directChannelRepository.findByParticipantOneIdAndParticipantTwoId(
                         participantOne.getId(), participantTwo.getId())
-                .map(channel -> new CreateOrGetResult(DirectChannelResponseDTO.from(channel, activeCurrentUser.getId()), false))
+                .map(channel -> new CreateOrGetResult(
+                        DirectChannelResponseDTO.from(channel, activeCurrentUser.getId()), false))
                 .orElseGet(() -> {
+                    if (!friendshipRepository.areFriends(activeCurrentUser, otherUser)) {
+                        throw new AccessDeniedException("You can only create a direct channel with an accepted friend");
+                    }
                     DirectChannel created = directChannelRepository.save(new DirectChannel(participantOne, participantTwo));
                     return new CreateOrGetResult(DirectChannelResponseDTO.from(created, activeCurrentUser.getId()), true);
                 });

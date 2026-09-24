@@ -1,5 +1,8 @@
 package com.example.liveChat.services;
 
+import com.example.liveChat.dto.CurrentUserResponseDTO;
+import com.example.liveChat.dto.PageResponseDTO;
+import com.example.liveChat.dto.PaginationRequestDTO;
 import com.example.liveChat.dto.UserLoginDTO;
 import com.example.liveChat.dto.UserLoginResponseDTO;
 import com.example.liveChat.dto.UserRegisterDTO;
@@ -22,6 +25,7 @@ import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -117,8 +121,9 @@ public class UserService {
         return refreshTokenService.issue(user);
     }
 
-    public List<User> findAll() {
-        return userRepository.findAllActive();
+    public PageResponseDTO<UserResponseDTO> findAll(PaginationRequestDTO pagination) {
+        var pageable = pagination.toPageable(Sort.by(Sort.Order.asc("name"), Sort.Order.asc("id")));
+        return PageResponseDTO.from(userRepository.findAllActive(pageable).map(UserResponseDTO::from));
     }
 
     @Transactional
@@ -157,11 +162,11 @@ public class UserService {
         if (partialEmail == null || partialEmail.isBlank()) return List.of();
         return userRepository.findActiveByEmailIgnoreCase(partialEmail.trim())
                 .stream()
-                .map(UserResponseDTO::forRegister)
+                .map(UserResponseDTO::from)
                 .toList();
     }
 
-    public UserResponseDTO getAuthenticatedUser(Authentication authentication) {
+    public CurrentUserResponseDTO getAuthenticatedUser(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()) {
             throw new RuntimeException("Usuário não autenticado");
         }
@@ -173,11 +178,7 @@ public class UserService {
                 new UsernameNotFoundException("User not found with email: " + email)
             );
 
-        return new UserResponseDTO(
-            user.getId(),
-            user.getName(),
-            user.getEmail()
-        );
+        return CurrentUserResponseDTO.from(user);
     }
 
     private void deleteServerWithoutSuccessor(String serverId) {

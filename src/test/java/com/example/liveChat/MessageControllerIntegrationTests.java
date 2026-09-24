@@ -28,6 +28,7 @@ import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -60,9 +61,25 @@ class MessageControllerIntegrationTests {
                 .andExpect(jsonPath("content").value("olá em privado"))
                 .andExpect(jsonPath("authorId").value(author.getId()));
 
-        mvc.perform(get("/direct-channels/" + channel.getId() + "/messages").header("Authorization", bearer(participant)))
+        mvc.perform(post("/direct-channels/" + channel.getId() + "/messages").header("Authorization", bearer(participant))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of("content", "mensagem mais nova"))))
+                .andExpect(status().isCreated());
+
+        mvc.perform(get("/direct-channels/" + channel.getId() + "/messages").param("size", "1")
+                        .header("Authorization", bearer(participant)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].content").value("olá em privado"));
+                .andExpect(jsonPath("$.content[0].content").value("mensagem mais nova"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(1))
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.totalPages").value(2))
+                .andExpect(jsonPath("$.last").value(false));
+        mvc.perform(get("/direct-channels/" + channel.getId() + "/messages").param("page", "1").param("size", "1")
+                        .header("Authorization", bearer(participant)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].content").value("olá em privado"))
+                .andExpect(jsonPath("$.last").value(true));
         mvc.perform(post("/direct-channels/" + channel.getId() + "/messages").header("Authorization", bearer(outsider))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(Map.of("content", "vazamento"))))
@@ -90,13 +107,35 @@ class MessageControllerIntegrationTests {
                 .andExpect(jsonPath("authorId").value(member.getId()));
         mvc.perform(get(messagePath(server, textChannel)).header("Authorization", bearer(owner)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].content").value("mensagem do grupo"));
+                .andExpect(jsonPath("$.content[0].content").value("mensagem do grupo"));
         mvc.perform(get(messagePath(server, textChannel)).header("Authorization", bearer(outsider)))
                 .andExpect(status().isForbidden());
         mvc.perform(post(messagePath(server, voiceChannel)).header("Authorization", bearer(owner))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(Map.of("content", "não permitido"))))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void messageBurstIsLimitedAcrossTheSharedMessageService() throws Exception {
+        User author = user();
+        User participant = user();
+        DirectChannel channel = directChannels.save(new DirectChannel(author, participant));
+
+        for (int request = 0; request < 10; request++) {
+            mvc.perform(post("/direct-channels/" + channel.getId() + "/messages")
+                            .header("Authorization", bearer(author))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(mapper.writeValueAsString(Map.of("content", "message " + request))))
+                    .andExpect(status().isCreated());
+        }
+
+        mvc.perform(post("/direct-channels/" + channel.getId() + "/messages")
+                        .header("Authorization", bearer(author))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of("content", "blocked"))))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists("Retry-After"));
     }
 
     @Test

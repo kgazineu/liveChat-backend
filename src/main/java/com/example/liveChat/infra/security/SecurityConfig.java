@@ -2,6 +2,7 @@ package com.example.liveChat.infra.security;
 
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -21,11 +22,17 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+    private final List<String> allowedOrigins;
+
+    public SecurityConfig(@Value("${livechat.security.allowed-origins:http://localhost:3000}") String allowedOrigins) {
+        this.allowedOrigins = parseAllowedOrigins(allowedOrigins);
+    }
 
     @Autowired
     SecurityFilter securityFilter;
@@ -60,13 +67,25 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("*"));
+        configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH"));
         configuration.setAllowedHeaders(List.of("*"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
+    }
+
+    private static List<String> parseAllowedOrigins(String configuredOrigins) {
+        List<String> origins = Arrays.stream(configuredOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .distinct()
+                .toList();
+        if (origins.isEmpty() || origins.contains("*")) {
+            throw new IllegalArgumentException("livechat.security.allowed-origins must contain explicit origins");
+        }
+        return origins;
     }
 
     @Bean
