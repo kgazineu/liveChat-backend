@@ -28,7 +28,9 @@ paths:
       tags: [Usuários]
       operationId: registerUser
       summary: Cadastra um usuário
-      description: Cria uma conta e armazena a senha com BCrypt. Não inicia uma sessão.
+      description: >-
+        Cria uma conta e armazena a senha com BCrypt. Não inicia uma sessão.
+        Limitado a 5 tentativas por IP a cada hora.
       requestBody:
         required: true
         content:
@@ -44,6 +46,10 @@ paths:
                 $ref: '#/components/schemas/User'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/RateLimitUnavailable'
         '500':
           $ref: '#/components/responses/InternalServerError'
   /users/login:
@@ -51,7 +57,9 @@ paths:
       tags: [Usuários]
       operationId: loginUser
       summary: Autentica um usuário
-      description: Retorna um JWT de acesso válido por duas horas e um refresh token válido por sete dias.
+      description: >-
+        Retorna um JWT de acesso válido por duas horas e um refresh token válido por sete dias.
+        Limitado a 10 tentativas por IP e 5 por conta a cada 5 minutos.
       requestBody:
         required: true
         content:
@@ -67,6 +75,10 @@ paths:
                 $ref: '#/components/schemas/AuthTokens'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/RateLimitUnavailable'
   /users/refresh:
     post:
       tags: [Usuários]
@@ -94,8 +106,9 @@ paths:
       operationId: requestPasswordReset
       summary: Solicita recuperação de senha
       description: >-
-        Sempre responde 202 para não revelar se o e-mail está cadastrado. Quando a conta existe,
-        envia um link de uso único para o e-mail do usuário; o token expira em 15 minutos por padrão.
+        Quando admitida pelo limitador, sempre responde 202 para não revelar se o e-mail está
+        cadastrado. Quando a conta existe, envia um link de uso único para o e-mail do usuário; o
+        token expira em 15 minutos por padrão. Limitado a 3 solicitações por IP e 2 por e-mail a cada hora.
       requestBody:
         required: false
         content:
@@ -105,6 +118,10 @@ paths:
       responses:
         '202':
           description: Solicitação recebida, independentemente da existência da conta.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/RateLimitUnavailable'
   /users/password-reset/confirm:
     post:
       tags: [Usuários]
@@ -152,15 +169,18 @@ paths:
       summary: Lista os usuários cadastrados
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
       responses:
         '200':
-          description: Usuários encontrados
+          description: Usuários ativos encontrados; os itens não expõem e-mail.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/User'
+                $ref: '#/components/schemas/UserPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /users/{id}:
@@ -221,7 +241,7 @@ paths:
       description: >-
         Envia ao e-mail atual o mesmo link usado na recuperação de senha. O cliente não informa o
         endereço; ele é obtido do usuário autenticado. A nova senha é definida em
-        `/users/password-reset/confirm`.
+        `/users/password-reset/confirm`. Limitado a 2 solicitações por usuário e por e-mail a cada hora.
       security:
         - bearerAuth: []
       responses:
@@ -229,6 +249,10 @@ paths:
           description: Solicitação recebida.
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/RateLimitUnavailable'
   /users/me:
     get:
       tags: [Usuários]
@@ -238,11 +262,11 @@ paths:
         - bearerAuth: []
       responses:
         '200':
-          description: Dados públicos da conta autenticada
+          description: Dados privados da conta autenticada, incluindo o próprio e-mail.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
+                $ref: '#/components/schemas/CurrentUser'
         '401':
           $ref: '#/components/responses/Unauthorized'
     put:
@@ -274,6 +298,10 @@ paths:
       tags: [Amizades]
       operationId: sendFriendshipRequest
       summary: Envia uma solicitação de amizade
+      description: >-
+        Cria uma solicitação ou reabre um relacionamento rejeitado. A reabertura exige um cooldown
+        de 24 horas desde a solicitação rejeitada. Limitado a 10 tentativas por remetente a cada hora
+        e a 20 por destinatário a cada dia.
       security:
         - bearerAuth: []
       requestBody:
@@ -293,6 +321,10 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/RateLimitUnavailable'
   /friendships/{id}/accept:
     patch:
       tags: [Amizades]
@@ -342,15 +374,18 @@ paths:
       summary: Lista os amigos do usuário autenticado
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
       responses:
         '200':
-          description: Amigos encontrados
+          description: Amigos encontrados; os itens não expõem e-mail.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/User'
+                $ref: '#/components/schemas/UserPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /friendships/requests:
@@ -361,15 +396,18 @@ paths:
       description: Retorna solicitações recebidas pelo usuário autenticado.
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
       responses:
         '200':
           description: Solicitações pendentes
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/FriendshipRequestResponse'
+                $ref: '#/components/schemas/FriendshipRequestPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /direct-channels:
@@ -377,7 +415,10 @@ paths:
       tags: [Canais privados]
       operationId: createOrGetDirectChannel
       summary: Cria ou recupera um canal privado 1:1
-      description: Há no máximo um canal para cada par de usuários, independentemente de qual deles inicia a conversa.
+      description: >-
+        Há no máximo um canal para cada par de usuários, independentemente de qual deles inicia a
+        conversa. Criar um canal novo exige amizade aceita; se o canal já existir, ele continua
+        acessível aos participantes mesmo que a amizade não esteja mais aceita.
       security:
         - bearerAuth: []
       requestBody:
@@ -403,6 +444,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
     get:
@@ -549,7 +592,9 @@ paths:
       tags: [Mensagens]
       operationId: sendDirectChannelMessage
       summary: Envia uma mensagem em um canal privado
-      description: Somente um dos dois participantes do canal pode enviar mensagens.
+      description: >-
+        Somente um dos dois participantes do canal pode enviar mensagens. O limite compartilhado
+        entre envios privados e de servidor é de 60 mensagens por minuto, com burst de 10 a cada 5 segundos, por usuário.
       security:
         - bearerAuth: []
       parameters:
@@ -575,24 +620,30 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/RateLimitUnavailable'
     get:
       tags: [Mensagens]
       operationId: listDirectChannelMessages
       summary: Lista as mensagens de um canal privado
-      description: Somente os dois participantes do canal podem consultar o histórico.
+      description: Somente os dois participantes do canal podem consultar o histórico. Retorna as mensagens mais recentes primeiro.
       security:
         - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/DirectChannelId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
       responses:
         '200':
-          description: Mensagens encontradas em ordem cronológica
+          description: Mensagens encontradas, da mais recente para a mais antiga.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Message'
+                $ref: '#/components/schemas/MessagePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -674,15 +725,17 @@ paths:
         - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/ServerId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
       responses:
         '200':
-          description: Membros encontrados.
+          description: Membros encontrados sem exposição de e-mail.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ServerMember'
+                $ref: '#/components/schemas/ServerMemberPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -729,15 +782,17 @@ paths:
         - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/ServerId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
       responses:
         '200':
           description: Canais encontrados, ordenados pela posição de criação.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ServerChannel'
+                $ref: '#/components/schemas/ServerChannelPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -860,7 +915,9 @@ paths:
       tags: [Mensagens]
       operationId: sendServerTextChannelMessage
       summary: Envia uma mensagem em um canal de texto
-      description: Exige participação no servidor e rejeita canais de voz.
+      description: >-
+        Exige participação no servidor e rejeita canais de voz. O limite compartilhado entre envios
+        privados e de servidor é de 60 mensagens por minuto, com burst de 10 a cada 5 segundos, por usuário.
       security:
         - bearerAuth: []
       parameters:
@@ -887,25 +944,29 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/RateLimitUnavailable'
     get:
       tags: [Mensagens]
       operationId: listServerTextChannelMessages
       summary: Lista as mensagens de um canal de texto
-      description: Exige participação no servidor e rejeita canais de voz.
+      description: Exige participação no servidor, rejeita canais de voz e retorna as mensagens mais recentes primeiro.
       security:
         - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/ServerId'
         - $ref: '#/components/parameters/ServerChannelId'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
       responses:
         '200':
-          description: Mensagens encontradas em ordem cronológica
+          description: Mensagens encontradas, da mais recente para a mais antiga.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Message'
+                $ref: '#/components/schemas/MessagePage'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1065,6 +1126,25 @@ components:
       bearerFormat: JWT
       description: JWT de acesso retornado por `/users/login` ou `/users/refresh`.
   parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      description: Índice da página, iniciado em zero.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    Size:
+      name: size
+      in: query
+      required: false
+      description: Quantidade de itens por página.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
     UserId:
       name: id
       in: path
@@ -1152,6 +1232,25 @@ components:
             $ref: '#/components/schemas/Error'
     ServiceUnavailable:
       description: LiveKit indisponível para criar a sala, emitir a credencial ou desconectar o participante.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Limite de requisições excedido.
+      headers:
+        Retry-After:
+          description: Segundos inteiros até uma nova tentativa ser permitida.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimitUnavailable:
+      description: Serviço de rate limiting indisponível; a operação falha de forma fechada.
       content:
         application/json:
           schema:
@@ -1261,6 +1360,18 @@ components:
           format: date-time
     User:
       type: object
+      description: Dados públicos de um usuário; não contém e-mail.
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Ana Silva
+    CurrentUser:
+      type: object
+      description: Dados privados disponíveis somente para a própria conta em `/users/me`.
       required: [id, name, email]
       properties:
         id:
@@ -1273,6 +1384,85 @@ components:
           type: string
           format: email
           example: ana@example.com
+    PageResponseDTO:
+      type: object
+      description: Envelope paginado retornado pela API; os schemas especializados tipam os itens de `content`.
+      required: [content, page, size, totalElements, totalPages, last]
+      properties:
+        content:
+          type: array
+          items: {}
+        page:
+          type: integer
+          minimum: 0
+          example: 0
+        size:
+          type: integer
+          minimum: 1
+          maximum: 100
+          example: 20
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+          example: 42
+        totalPages:
+          type: integer
+          minimum: 0
+          example: 3
+        last:
+          type: boolean
+          example: false
+    UserPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResponseDTO'
+        - type: object
+          required: [content]
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/User'
+    FriendshipRequestPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResponseDTO'
+        - type: object
+          required: [content]
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/FriendshipRequestResponse'
+    ServerMemberPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResponseDTO'
+        - type: object
+          required: [content]
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/ServerMember'
+    ServerChannelPage:
+      allOf:
+        - $ref: '#/components/schemas/PageResponseDTO'
+        - type: object
+          required: [content]
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/ServerChannel'
+    MessagePage:
+      allOf:
+        - $ref: '#/components/schemas/PageResponseDTO'
+        - type: object
+          required: [content]
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/Message'
     FriendshipRequest:
       type: object
       required: [targetUserId]
@@ -1326,6 +1516,9 @@ components:
       properties:
         content:
           type: string
+          minLength: 1
+          maxLength: 4000
+          description: Texto não vazio; espaços nas extremidades são removidos antes da persistência.
           example: Olá!
     Message:
       type: object
@@ -1493,7 +1686,8 @@ components:
           format: date-time
     ServerMember:
       type: object
-      required: [userId, userName, userEmail, role, joinedAt]
+      description: Dados públicos de um membro do servidor; não contém e-mail.
+      required: [userId, userName, role, joinedAt]
       properties:
         userId:
           type: string
@@ -1501,10 +1695,6 @@ components:
         userName:
           type: string
           example: Ana Silva
-        userEmail:
-          type: string
-          format: email
-          example: ana@example.com
         role:
           type: string
           enum: [OWNER, MEMBER]

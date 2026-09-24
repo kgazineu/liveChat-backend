@@ -10,6 +10,9 @@ import com.example.liveChat.exceptions.ResourceConflictException;
 import com.example.liveChat.exceptions.DirectChannelNotFoundException;
 import com.example.liveChat.exceptions.ServerChannelNotFoundException;
 import com.example.liveChat.exceptions.MediaInfrastructureUnavailableException;
+import com.example.liveChat.exceptions.RateLimitExceededException;
+import com.example.liveChat.infra.ratelimit.RateLimitInfrastructureException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -85,6 +88,20 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(MediaInfrastructureUnavailableException.class)
     private ResponseEntity<RestErrorMessage> mediaInfrastructureUnavailableHandler(
             MediaInfrastructureUnavailableException exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new RestErrorMessage(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage()));
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    private ResponseEntity<RestErrorMessage> rateLimitExceededHandler(RateLimitExceededException exception) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.getRetryAfterSeconds()))
+                .body(new RestErrorMessage(HttpStatus.TOO_MANY_REQUESTS, exception.getMessage()));
+    }
+
+    @ExceptionHandler(RateLimitInfrastructureException.class)
+    private ResponseEntity<RestErrorMessage> rateLimitInfrastructureHandler(
+            RateLimitInfrastructureException exception) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(new RestErrorMessage(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage()));
     }

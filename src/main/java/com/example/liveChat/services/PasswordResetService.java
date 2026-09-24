@@ -1,7 +1,7 @@
 package com.example.liveChat.services;
 
 import com.example.liveChat.exceptions.InvalidRequestException;
-import com.example.liveChat.infra.mail.PasswordResetMailSender;
+
 import com.example.liveChat.models.PasswordResetToken;
 import com.example.liveChat.models.User;
 import com.example.liveChat.repositories.PasswordResetTokenRepository;
@@ -10,9 +10,8 @@ import com.example.liveChat.repositories.UserRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -28,7 +27,6 @@ import java.util.HexFormat;
 
 @Service
 public class PasswordResetService {
-    private static final Logger logger = LoggerFactory.getLogger(PasswordResetService.class);
     private static final int TOKEN_BYTES = 32;
     private static final String INVALID_TOKEN_MESSAGE = "Invalid, expired or already used password reset token";
 
@@ -37,7 +35,7 @@ public class PasswordResetService {
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final PendingProfileUpdateRepository pendingProfileUpdateRepository;
     private final RefreshTokenService refreshTokenService;
-    private final PasswordResetMailSender mailSender;
+    private final ApplicationEventPublisher eventPublisher;
     private final PasswordEncoder passwordEncoder;
     private final PasswordResetPasswordPolicy passwordPolicy;
     private final EntityManager entityManager;
@@ -48,7 +46,7 @@ public class PasswordResetService {
                                 PasswordResetTokenRepository passwordResetTokenRepository,
                                 PendingProfileUpdateRepository pendingProfileUpdateRepository,
                                 RefreshTokenService refreshTokenService,
-                                PasswordResetMailSender mailSender,
+                                ApplicationEventPublisher eventPublisher,
                                 PasswordEncoder passwordEncoder,
                                 PasswordResetPasswordPolicy passwordPolicy,
                                 EntityManager entityManager,
@@ -58,7 +56,7 @@ public class PasswordResetService {
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.pendingProfileUpdateRepository = pendingProfileUpdateRepository;
         this.refreshTokenService = refreshTokenService;
-        this.mailSender = mailSender;
+        this.eventPublisher = eventPublisher;
         this.passwordEncoder = passwordEncoder;
         this.passwordPolicy = passwordPolicy;
         this.entityManager = entityManager;
@@ -76,14 +74,11 @@ public class PasswordResetService {
             resetToken.setTokenHash(hash(rawToken));
             resetToken.setUser(user);
             resetToken.setExpiresAt(Instant.now().plus(tokenTtl));
-            passwordResetTokenRepository.saveAndFlush(resetToken);
 
-            try {
-                mailSender.sendPasswordReset(user.getEmail(), resetUrl(rawToken));
-            } catch (RuntimeException exception) {
-                passwordResetTokenRepository.delete(resetToken);
-                logger.error("Could not send password reset e-mail", exception);
-            }
+            passwordResetTokenRepository.deleteByUserId(user.getId());
+            passwordResetTokenRepository.saveAndFlush(resetToken);
+            eventPublisher.publishEvent(new PasswordResetRequestedEvent(
+                    user.getEmail(), resetUrl(rawToken), resetToken.getId()));
         });
     }
 

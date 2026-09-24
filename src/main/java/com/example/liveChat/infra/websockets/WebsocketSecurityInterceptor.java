@@ -1,5 +1,6 @@
 package com.example.liveChat.infra.websockets;
 
+import com.example.liveChat.infra.ratelimit.RateLimiter;
 import com.example.liveChat.infra.security.TokenService;
 import com.example.liveChat.repositories.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,13 +16,20 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+
 @Component
 public class WebsocketSecurityInterceptor implements ChannelInterceptor {
+    private static final Duration CONNECT_RATE_WINDOW = Duration.ofMinutes(5);
+
     @Autowired
     private TokenService tokenService;
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private RateLimiter rateLimiter;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -45,6 +53,7 @@ public class WebsocketSecurityInterceptor implements ChannelInterceptor {
             if (!tokenService.isTokenValidForUser(authHeader.substring(7), user)) {
                 throw new BadCredentialsException("Invalid WebSocket credentials");
             }
+            rateLimiter.check("websocket-connect-user", user.getId(), 10, CONNECT_RATE_WINDOW);
             accessor.setUser(new UsernamePasswordAuthenticationToken(user.getEmail(), null, user.getAuthorities()));
             return message;
         }

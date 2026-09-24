@@ -1,5 +1,8 @@
 package com.example.liveChat.controllers;
 
+import com.example.liveChat.dto.CurrentUserResponseDTO;
+import com.example.liveChat.dto.PageResponseDTO;
+import com.example.liveChat.dto.PaginationRequestDTO;
 import com.example.liveChat.dto.UserLoginDTO;
 import com.example.liveChat.dto.UserLoginResponseDTO;
 import com.example.liveChat.dto.UserRegisterDTO;
@@ -15,6 +18,8 @@ import com.example.liveChat.services.RefreshTokenService;
 import com.example.liveChat.services.PasswordResetService;
 import com.example.liveChat.services.ProfileUpdateService;
 import com.example.liveChat.infra.RestErrorMessage;
+import com.example.liveChat.infra.ratelimit.ClientIpResolver;
+import com.example.liveChat.infra.ratelimit.RateLimiter;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -31,12 +36,17 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.servlet.http.HttpServletRequest;
+import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 
 @RestController
 @RequestMapping("/users")
 @Tag(name = "Usuários")
 public class UserController {
+    private static final Duration FIVE_MINUTES = Duration.ofMinutes(5);
+    private static final Duration ONE_HOUR = Duration.ofHours(1);
 
     @Autowired
     private UserService userService;
@@ -50,6 +60,12 @@ public class UserController {
     @Autowired
     private ProfileUpdateService profileUpdateService;
 
+    @Autowired
+    private RateLimiter rateLimiter;
+
+    @Autowired
+    private ClientIpResolver clientIpResolver;
+
     @PostMapping("/register")
     @Operation(summary = "Cadastra um usuário", description = "Cria uma conta e armazena a senha com BCrypt. Não inicia uma sessão automaticamente.")
     @ApiResponses({
@@ -57,9 +73,11 @@ public class UserController {
             @ApiResponse(responseCode = "409", description = "E-mail já cadastrado",
                     content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
     })
-    public ResponseEntity<UserResponseDTO> register(@RequestBody UserRegisterDTO body) {
+    public ResponseEntity<UserResponseDTO> register(@RequestBody UserRegisterDTO body,
+                                                     HttpServletRequest request) {
+        rateLimiter.check("register-ip", clientIpResolver.resolve(request), 5, ONE_HOUR);
         var newUser = userService.register(body);
-        return ResponseEntity.ok(UserResponseDTO.forRegister(newUser));
+        return ResponseEntity.ok(UserResponseDTO.from(newUser));
     }
 
     @PostMapping("/login")
@@ -69,7 +87,11 @@ public class UserController {
             @ApiResponse(responseCode = "401", description = "E-mail ou senha inválidos",
                     content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
     })
-    public ResponseEntity<UserLoginResponseDTO> login(@RequestBody UserLoginDTO body){
+    public ResponseEntity<UserLoginResponseDTO> login(@RequestBody UserLoginDTO body,
+                                                       HttpServletRequest request){
+        rateLimiter.check("login-ip", clientIpResolver.resolve(request), 10, FIVE_MINUTES);
+        rateLimiter.check("login-account", normalizedRateLimitEmail(body == null ? null : body.email()),
+                5, FIVE_MINUTES);
         UserLoginResponseDTO token = userService.login(body);
         return ResponseEntity.ok(token);
     }
@@ -89,8 +111,12 @@ public class UserController {
     @Operation(summary = "Solicita recuperação de senha",
             description = "Sempre responde 202 para não revelar se o e-mail está cadastrado.")
     @ApiResponse(responseCode = "202", description = "Solicitação recebida")
-    public ResponseEntity<Void> requestPasswordReset(@RequestBody(required = false) PasswordResetRequestDTO body) {
-        passwordResetService.request(body == null ? null : body.email());
+    public ResponseEntity<Void> requestPasswordReset(@RequestBody(required = false) PasswordResetRequestDTO body,
+                                                     HttpServletRequest request) {
+        String email = body == null ? null : body.email();
+        rateLimiter.check("password-reset-ip", clientIpResolver.resolve(request), 3, ONE_HOUR);
+        rateLimiter.check("password-reset-email", normalizedRateLimitEmail(email), 2, ONE_HOUR);
+        passwordResetService.request(email);
         return ResponseEntity.accepted().build();
     }
 
@@ -131,6 +157,8 @@ public class UserController {
     })
     public ResponseEntity<Void> requestOwnPasswordReset(
             @Parameter(hidden = true) @AuthenticationPrincipal User loggedUser) {
+        rateLimiter.check("password-reset-user", loggedUser.getId(), 2, ONE_HOUR);
+        rateLimiter.check("password-reset-email", normalizedRateLimitEmail(loggedUser.getEmail()), 2, ONE_HOUR);
         passwordResetService.request(loggedUser.getEmail());
         return ResponseEntity.accepted().build();
     }
@@ -139,13 +167,18 @@ public class UserController {
     @Operation(summary = "Lista os usuários", description = "Retorna somente contas ativas.",
             security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponse(responseCode = "200", description = "Usuários encontrados",
-            content = @Content(array = @ArraySchema(schema = @Schema(implementation = UserResponseDTO.class))))
+            content = @Content(schema = @Schema(implementation = PageResponseDTO.class)))
+    @ApiResponse(responseCode = "400", description = "Paginação inválida",
+            content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
     @ApiResponse(responseCode = "401", description = "JWT ausente ou inválido")
-    public ResponseEntity<List<UserResponseDTO>> getAllUsers() {
-        var users = userService.findAll();
-        var response = users.stream().map(UserResponseDTO::forRegister).toList();
-
-        return ResponseEntity.ok(response);
+    public ResponseEntity<PageResponseDTO<UserResponseDTO>> getAllUsers(
+            @Parameter(description = "Índice da página, iniciado em zero",
+                    schema = @Schema(type = "integer", defaultValue = "0", minimum = "0"))
+            @RequestParam(defaultValue = "0") String page,
+            @Parameter(description = "Itens por página (máximo 100)",
+                    schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100"))
+            @RequestParam(defaultValue = "20") String size) {
+        return ResponseEntity.ok(userService.findAll(PaginationRequestDTO.from(page, size)));
     }
 
     @DeleteMapping("{id}")
@@ -202,11 +235,16 @@ public class UserController {
     @GetMapping("/me")
     @Operation(summary = "Obtém o usuário autenticado", security = @SecurityRequirement(name = "bearerAuth"))
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Dados públicos da conta autenticada"),
+            @ApiResponse(responseCode = "200", description = "Dados privados da conta autenticada, incluindo o próprio e-mail"),
             @ApiResponse(responseCode = "401", description = "JWT ausente ou inválido")
     })
-    public ResponseEntity<UserResponseDTO> me(@Parameter(hidden = true) Authentication authentication) {
-        UserResponseDTO user = userService.getAuthenticatedUser(authentication);
+    public ResponseEntity<CurrentUserResponseDTO> me(@Parameter(hidden = true) Authentication authentication) {
+        CurrentUserResponseDTO user = userService.getAuthenticatedUser(authentication);
         return ResponseEntity.ok(user);
+    }
+
+    private String normalizedRateLimitEmail(String email) {
+        if (email == null || email.isBlank()) return "missing";
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 }

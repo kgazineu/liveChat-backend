@@ -4,6 +4,8 @@ import com.example.liveChat.dto.ChannelResponseDTO;
 import com.example.liveChat.dto.CreateChannelRequestDTO;
 import com.example.liveChat.dto.CreateServerInviteRequestDTO;
 import com.example.liveChat.dto.CreateServerRequestDTO;
+import com.example.liveChat.dto.PageResponseDTO;
+import com.example.liveChat.dto.PaginationRequestDTO;
 import com.example.liveChat.dto.ServerInviteResponseDTO;
 import com.example.liveChat.dto.ServerMemberResponseDTO;
 import com.example.liveChat.dto.ServerResponseDTO;
@@ -28,6 +30,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -81,16 +84,25 @@ public class ServerController {
     @Operation(summary = "Lista os membros de um servidor", description = "Exige que o usuário autenticado seja membro.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Membros encontrados",
-                    content = @Content(array = @ArraySchema(schema = @Schema(implementation = ServerMemberResponseDTO.class)))),
+                    content = @Content(schema = @Schema(implementation = PageResponseDTO.class))),
+            @ApiResponse(responseCode = "400", description = "Paginação inválida",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
             @ApiResponse(responseCode = "403", description = "Usuário não é membro",
                     content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
             @ApiResponse(responseCode = "404", description = "Servidor inexistente",
                     content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
     })
-    public ResponseEntity<List<ServerMemberResponseDTO>> listMembers(
+    public ResponseEntity<PageResponseDTO<ServerMemberResponseDTO>> listMembers(
             @PathVariable String serverId,
-            @Parameter(hidden = true) @AuthenticationPrincipal User user) {
-        return ResponseEntity.ok(serverService.listMembers(serverId, user));
+            @Parameter(hidden = true) @AuthenticationPrincipal User user,
+            @Parameter(description = "Índice da página, iniciado em zero",
+                    schema = @Schema(type = "integer", defaultValue = "0", minimum = "0"))
+            @RequestParam(defaultValue = "0") String page,
+            @Parameter(description = "Itens por página (máximo 100)",
+                    schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100"))
+            @RequestParam(defaultValue = "20") String size) {
+        return ResponseEntity.ok(serverService.listMembers(
+                serverId, user, PaginationRequestDTO.from(page, size)));
     }
 
     @PostMapping("/{serverId}/channels")
@@ -111,13 +123,23 @@ public class ServerController {
     @Operation(summary = "Lista os canais de um servidor", description = "Exige que o usuário autenticado seja membro.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Canais encontrados",
-                    content = @Content(array = @ArraySchema(schema = @Schema(implementation = ChannelResponseDTO.class)))),
+                    content = @Content(schema = @Schema(implementation = PageResponseDTO.class))),
+            @ApiResponse(responseCode = "400", description = "Paginação inválida",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
             @ApiResponse(responseCode = "403", description = "Usuário não é membro",
                     content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
     })
-    public ResponseEntity<List<ChannelResponseDTO>> listChannels(@PathVariable String serverId,
-                                                                    @Parameter(hidden = true) @AuthenticationPrincipal User user) {
-        return ResponseEntity.ok(serverService.listChannels(serverId, user));
+    public ResponseEntity<PageResponseDTO<ChannelResponseDTO>> listChannels(
+            @PathVariable String serverId,
+            @Parameter(hidden = true) @AuthenticationPrincipal User user,
+            @Parameter(description = "Índice da página, iniciado em zero",
+                    schema = @Schema(type = "integer", defaultValue = "0", minimum = "0"))
+            @RequestParam(defaultValue = "0") String page,
+            @Parameter(description = "Itens por página (máximo 100)",
+                    schema = @Schema(type = "integer", defaultValue = "20", minimum = "1", maximum = "100"))
+            @RequestParam(defaultValue = "20") String size) {
+        return ResponseEntity.ok(serverService.listChannels(
+                serverId, user, PaginationRequestDTO.from(page, size)));
     }
 
     @PostMapping("/{serverId}/invites")

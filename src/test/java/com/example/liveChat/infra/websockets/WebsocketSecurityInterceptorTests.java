@@ -1,5 +1,6 @@
 package com.example.liveChat.infra.websockets;
 
+import com.example.liveChat.infra.ratelimit.RateLimiter;
 import com.example.liveChat.infra.security.TokenService;
 import com.example.liveChat.models.User;
 import com.example.liveChat.repositories.UserRepository;
@@ -18,6 +19,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 
@@ -28,6 +30,7 @@ import static org.mockito.Mockito.*;
 class WebsocketSecurityInterceptorTests {
     @Mock private TokenService tokenService;
     @Mock private UserRepository users;
+    @Mock private RateLimiter rateLimiter;
     @InjectMocks private WebsocketSecurityInterceptor interceptor;
 
     @Test
@@ -62,9 +65,11 @@ class WebsocketSecurityInterceptorTests {
         when(tokenService.validateToken("token")).thenReturn("user@example.test");
         User user = new User("User", "user@example.test", "hash");
         when(users.findActiveByEmailIgnoreCase("user@example.test")).thenReturn(Optional.of(user));
+        user.setId("550e8400-e29b-41d4-a716-446655440000");
         when(tokenService.isTokenValidForUser("token", user)).thenReturn(true);
         interceptor.preSend(message(accessor), null);
         assertThat(accessor.getUser().getName()).isEqualTo("user@example.test");
+        verify(rateLimiter).check("websocket-connect-user", user.getId(), 10, Duration.ofMinutes(5));
     }
 
     @Test

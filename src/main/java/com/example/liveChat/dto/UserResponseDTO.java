@@ -6,14 +6,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 @Schema(description = "Dados públicos de um usuário")
 public record UserResponseDTO(
         @Schema(description = "UUID do usuário", example = "550e8400-e29b-41d4-a716-446655440000") String id,
-        @Schema(description = "Nome exibido", example = "Ana Silva") String name,
-        @Schema(description = "E-mail do usuário", example = "ana@example.com") String email
+        @Schema(description = "Nome exibido", example = "Ana Silva") String name
 ) {
-    public UserResponseDTO(User user) {
-        this(user.getId(), user.getName(), user.getEmail());
-    }
-
-    public static UserResponseDTO forRegister(User user) {
-        return new UserResponseDTO(user.getId(), user.getName(), user.getEmail());
+    public static UserResponseDTO from(User user) {
+        return new UserResponseDTO(user.getId(), user.getName());
     }
 }
