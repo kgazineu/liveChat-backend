@@ -27,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.util.List;
 
 @Service
 public class MessageService {
@@ -42,6 +43,7 @@ public class MessageService {
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final RateLimiter rateLimiter;
+    private final MessageAttachmentService attachmentService;
 
     public MessageService(DirectChannelRepository directChannelRepository,
                           DirectMessageRepository directMessageRepository,
@@ -50,7 +52,8 @@ public class MessageService {
                           ServerMemberRepository serverMemberRepository,
                           UserRepository userRepository,
                           SimpMessagingTemplate messagingTemplate,
-                          RateLimiter rateLimiter) {
+                          RateLimiter rateLimiter,
+                          MessageAttachmentService attachmentService) {
         this.directChannelRepository = directChannelRepository;
         this.directMessageRepository = directMessageRepository;
         this.serverChannelRepository = serverChannelRepository;
@@ -59,6 +62,7 @@ public class MessageService {
         this.userRepository = userRepository;
         this.messagingTemplate = messagingTemplate;
         this.rateLimiter = rateLimiter;
+        this.attachmentService = attachmentService;
     }
 
     @Transactional
@@ -66,8 +70,11 @@ public class MessageService {
         User sender = getUser(senderEmail);
         DirectChannel directChannel = getDirectChannelForParticipant(channelId, sender);
         checkMessageRateLimits(sender.getId());
-        DirectMessage message = directMessageRepository.save(new DirectMessage(directChannel, sender, contentOf(request)));
-        MessageResponseDTO response = MessageResponseDTO.from(message);
+        var attachments = attachmentService.prepareForDirectMessage(attachmentIdsOf(request), sender, directChannel);
+        DirectMessage message = directMessageRepository.save(
+                new DirectMessage(directChannel, sender, contentOf(request, !attachments.isEmpty())));
+        var attachmentResponses = attachmentService.attachToDirectMessage(attachments, message);
+        MessageResponseDTO response = MessageResponseDTO.from(message, attachmentResponses);
         notifyUser(directChannel.getParticipantOne(), response);
         notifyUser(directChannel.getParticipantTwo(), response);
         return response;
@@ -78,9 +85,11 @@ public class MessageService {
                                                                    PaginationRequestDTO pagination) {
         User user = getUser(userEmail);
         getDirectChannelForParticipant(channelId, user);
-        return PageResponseDTO.from(directMessageRepository
-                .findByDirectChannelIdOrderByCreatedAtDescIdDesc(channelId, pagination.toPageable())
-                .map(MessageResponseDTO::from));
+        var messages = directMessageRepository
+                .findByDirectChannelIdOrderByCreatedAtDescIdDesc(channelId, pagination.toPageable());
+        var attachments = attachmentService.responsesForDirectMessages(messages.getContent());
+        return PageResponseDTO.from(messages.map(message -> MessageResponseDTO.from(
+                message, attachments.getOrDefault(message.getId(), List.of()))));
     }
 
     @Transactional
@@ -89,8 +98,11 @@ public class MessageService {
         User sender = getUser(senderEmail);
         ServerChannel textChannel = getTextChannelForMember(serverId, channelId, sender);
         checkMessageRateLimits(sender.getId());
-        ChannelMessage message = channelMessageRepository.save(new ChannelMessage(textChannel, sender, contentOf(request)));
-        MessageResponseDTO response = MessageResponseDTO.from(message);
+        var attachments = attachmentService.prepareForChannelMessage(attachmentIdsOf(request), sender, textChannel);
+        ChannelMessage message = channelMessageRepository.save(
+                new ChannelMessage(textChannel, sender, contentOf(request, !attachments.isEmpty())));
+        var attachmentResponses = attachmentService.attachToChannelMessage(attachments, message);
+        MessageResponseDTO response = MessageResponseDTO.from(message, attachmentResponses);
         serverMemberRepository.findByServerId(serverId)
                 .forEach(member -> notifyUser(member.getUser(), response));
         return response;
@@ -101,9 +113,11 @@ public class MessageService {
                                                                     PaginationRequestDTO pagination) {
         User user = getUser(userEmail);
         getTextChannelForMember(serverId, channelId, user);
-        return PageResponseDTO.from(channelMessageRepository
-                .findByChannelIdOrderByCreatedAtDescIdDesc(channelId, pagination.toPageable())
-                .map(MessageResponseDTO::from));
+        var messages = channelMessageRepository
+                .findByChannelIdOrderByCreatedAtDescIdDesc(channelId, pagination.toPageable());
+        var attachments = attachmentService.responsesForChannelMessages(messages.getContent());
+        return PageResponseDTO.from(messages.map(message -> MessageResponseDTO.from(
+                message, attachments.getOrDefault(message.getId(), List.of()))));
     }
 
     private User getUser(String email) {
@@ -140,10 +154,15 @@ public class MessageService {
         rateLimiter.check("message-burst-user", userId, 10, MESSAGE_BURST_WINDOW);
     }
 
-    private String contentOf(MessageRequestDTO request) {
+    private List<String> attachmentIdsOf(MessageRequestDTO request) {
+        return request == null || request.attachmentIds() == null ? List.of() : request.attachmentIds();
+    }
+
+    private String contentOf(MessageRequestDTO request, boolean hasAttachments) {
         String content = request == null ? null : request.content();
         if (content == null || content.isBlank()) {
-            throw new InvalidRequestException("Message content is required");
+            if (hasAttachments) return "";
+            throw new InvalidRequestException("Message content or at least one attachment is required");
         }
         String normalized = content.trim();
         if (normalized.length() > MAX_CONTENT_LENGTH) {
