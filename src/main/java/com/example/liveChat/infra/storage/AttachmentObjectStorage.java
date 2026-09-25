@@ -1,11 +1,11 @@
 package com.example.liveChat.infra.storage;
 
 public interface AttachmentObjectStorage {
-    SignedUpload presignPut(String objectKey, String contentType, long contentLength, String ownerId, String uploadId);
+    SignedUpload signUpload(String objectKey, String contentType, long contentLength, String ownerId, String uploadId);
 
-    SignedDownload presignGet(String objectKey);
+    SignedDownload signDownload(String objectKey, String originalName, String contentType);
 
-    StoredObjectMetadata head(String objectKey);
+    StoredObjectMetadata inspect(String objectKey, String contentType);
 
-    void delete(String objectKey);
+    void delete(String objectKey, String contentType);
 }

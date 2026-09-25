@@ -6,11 +6,12 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.Map;
 
-@Schema(description = "Autorização temporária para enviar o arquivo diretamente ao armazenamento de objetos")
+@Schema(description = "Autorização temporária para enviar o arquivo diretamente ao Cloudinary")
 public record AttachmentUploadResponseDTO(
         @Schema(description = "UUID que deve ser enviado em attachmentIds ao criar a mensagem") String attachmentId,
-        @Schema(description = "URL assinada para PUT direto") URI uploadUrl,
-        @Schema(description = "Headers que devem ser enviados exatamente como retornados") Map<String, String> requiredHeaders,
-        @Schema(description = "Expiração da URL de upload") Instant expiresAt
+        @Schema(description = "Endpoint do Cloudinary que receberá o formulário multipart") URI uploadUrl,
+        @Schema(description = "Método HTTP do upload direto", example = "POST") String uploadMethod,
+        @Schema(description = "Campos assinados que devem ser adicionados ao FormData antes do campo file") Map<String, String> formFields,
+        @Schema(description = "Expiração da assinatura de upload do Cloudinary") Instant expiresAt
 ) {
 }

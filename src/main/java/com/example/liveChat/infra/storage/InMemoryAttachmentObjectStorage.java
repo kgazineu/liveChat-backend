@@ -13,12 +13,13 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 @Profile("test")
 public class InMemoryAttachmentObjectStorage implements AttachmentObjectStorage {
-    private static final Duration URL_TTL = Duration.ofMinutes(5);
+    private static final Duration UPLOAD_TTL = Duration.ofHours(1);
+    private static final Duration DOWNLOAD_TTL = Duration.ofMinutes(5);
 
     private final Map<String, StoredObjectMetadata> objects = new ConcurrentHashMap<>();
 
     @Override
-    public SignedUpload presignPut(String objectKey, String contentType, long contentLength, String ownerId,
+    public SignedUpload signUpload(String objectKey, String contentType, long contentLength, String ownerId,
                                    String uploadId) {
         requireText(objectKey, "objectKey");
         requireText(contentType, "contentType");
@@ -28,27 +29,35 @@ public class InMemoryAttachmentObjectStorage implements AttachmentObjectStorage 
 
         Map<String, String> metadata = Map.of("owner-id", ownerId, "upload-id", uploadId);
         objects.put(objectKey, new StoredObjectMetadata(contentLength, contentType, metadata));
-        Map<String, String> headers = Map.of(
-                "content-type", contentType,
-                "x-amz-meta-owner-id", ownerId,
-                "x-amz-meta-upload-id", uploadId);
-        Instant expiresAt = Instant.now().plus(URL_TTL);
-        return new SignedUpload(opaqueUrl("attachment-upload"), headers, expiresAt);
+        Map<String, String> formFields = Map.of(
+                "api_key", "test-api-key",
+                "upload_preset", "test-private-attachments",
+                "timestamp", Long.toString(Instant.now().getEpochSecond()),
+                "signature", "test-signature",
+                "public_id", objectKey,
+                "type", "private",
+                "overwrite", "false");
+        Instant expiresAt = Instant.now().plus(UPLOAD_TTL);
+        return new SignedUpload(opaqueUrl("attachment-upload"), "POST", formFields, expiresAt);
     }
 
     @Override
-    public SignedDownload presignGet(String objectKey) {
+    public SignedDownload signDownload(String objectKey, String originalName, String contentType) {
+        requireText(originalName, "originalName");
+        requireText(contentType, "contentType");
         requireObject(objectKey);
-        return new SignedDownload(opaqueUrl("attachment-download"), Instant.now().plus(URL_TTL));
+        return new SignedDownload(opaqueUrl("attachment-download"), Instant.now().plus(DOWNLOAD_TTL));
     }
 
     @Override
-    public StoredObjectMetadata head(String objectKey) {
+    public StoredObjectMetadata inspect(String objectKey, String contentType) {
+        requireText(contentType, "contentType");
         return requireObject(objectKey);
     }
 
     @Override
-    public void delete(String objectKey) {
+    public void delete(String objectKey, String contentType) {
+        requireText(contentType, "contentType");
         requireText(objectKey, "objectKey");
         objects.remove(objectKey);
     }

@@ -17,6 +17,7 @@ import org.springframework.data.domain.Pageable;
 import java.time.Instant;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -35,10 +36,17 @@ class PendingAttachmentCleanupServiceTests {
                 any(Instant.class), any(Pageable.class))).thenReturn(new PageImpl<>(List.of(expired)));
         PendingAttachmentCleanupService cleaner = new PendingAttachmentCleanupService(attachments, objectStorage);
 
+        Instant beforeCleanup = Instant.now();
         cleaner.removeExpiredPendingAttachments();
 
+        var cutoff = org.mockito.ArgumentCaptor.forClass(Instant.class);
+        verify(attachments).findByDirectMessageIsNullAndChannelMessageIsNullAndExpiresAtLessThanEqualOrderByExpiresAtAscIdAsc(
+                cutoff.capture(), any(Pageable.class));
+        assertThat(cutoff.getValue())
+                .isAfterOrEqualTo(beforeCleanup.minusSeconds(3600))
+                .isBeforeOrEqualTo(Instant.now().minusSeconds(3600));
         var ordered = org.mockito.Mockito.inOrder(objectStorage, attachments);
-        ordered.verify(objectStorage).delete(expired.getObjectKey());
+        ordered.verify(objectStorage).delete(expired.getObjectKey(), expired.getContentType());
         ordered.verify(attachments).delete(expired);
     }
 
@@ -47,7 +55,8 @@ class PendingAttachmentCleanupServiceTests {
         MessageAttachment expired = expiredAttachment();
         when(attachments.findByDirectMessageIsNullAndChannelMessageIsNullAndExpiresAtLessThanEqualOrderByExpiresAtAscIdAsc(
                 any(Instant.class), any(Pageable.class))).thenReturn(new PageImpl<>(List.of(expired)));
-        doThrow(new AttachmentStorageException("DELETE")).when(objectStorage).delete(expired.getObjectKey());
+        doThrow(new AttachmentStorageException("DELETE")).when(objectStorage)
+                .delete(expired.getObjectKey(), expired.getContentType());
         PendingAttachmentCleanupService cleaner = new PendingAttachmentCleanupService(attachments, objectStorage);
 
         cleaner.removeExpiredPendingAttachments();

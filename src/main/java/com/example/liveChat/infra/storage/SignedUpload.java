@@ -5,10 +5,11 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 
-public record SignedUpload(URI url, Map<String, String> requiredHeaders, Instant expiresAt) {
+public record SignedUpload(URI url, String method, Map<String, String> formFields, Instant expiresAt) {
     public SignedUpload {
         Objects.requireNonNull(url, "url is required");
-        requiredHeaders = Map.copyOf(Objects.requireNonNull(requiredHeaders, "requiredHeaders is required"));
+        Objects.requireNonNull(method, "method is required");
+        formFields = Map.copyOf(Objects.requireNonNull(formFields, "formFields is required"));
         Objects.requireNonNull(expiresAt, "expiresAt is required");
     }
 }

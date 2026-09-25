@@ -19,7 +19,7 @@ As funcionalidades atuais são:
 - consulta, atualização confirmada e soft delete da própria conta; alterações de nome ou e-mail ficam pendentes até a confirmação enviada ao endereço anterior; ao desativar a conta, os dados pessoais são anonimizados e o histórico de mensagens é preservado;
 - solicitações de amizade e lista de amigos, com eventos privados STOMP de criação, aceite e rejeição; uma solicitação rejeitada só pode ser reaberta após 24 horas;
 - mensagens persistidas em canais privados 1:1 e em canais `TEXT` de servidor;
-- anexos de imagens/GIF, áudio, vídeo e documentos comuns em mensagens, com reserva autenticada, upload e download diretos por URLs assinadas no armazenamento S3 compatível; cada arquivo pode ter até 10 MiB e cada mensagem aceita no máximo quatro anexos;
+- anexos de imagens/GIF, vídeo e documentos comuns em mensagens, com reserva autenticada, upload direto assinado e download temporário pelo Cloudinary; cada arquivo pode ter até 10 MiB e cada mensagem aceita no máximo quatro anexos;
 - WebSocket nativo em `/ws`, com STOMP e autenticação por `Authorization: Bearer <JWT>` no frame `CONNECT`;
 - envio STOMP para canais privados ou de servidor e recebimento em `/user/queue/messages` pelos participantes autorizados;
 - servidores com proprietário e membros;
@@ -44,7 +44,7 @@ A migração das mensagens privadas legadas para canais 1:1 é opcional e fica d
 - [x] **Paginação limitada e estável.** `GET /users`, `/friendships`, `/friendships/requests`, `/servers/{serverId}/members`, `/servers/{serverId}/channels` e os dois históricos de mensagens retornam `PageResponseDTO`, com `page >= 0` (padrão 0) e `size` entre 1 e 100 (padrão 20). Históricos retornam as mensagens mais recentes primeiro.
 - [x] **Proteções sociais.** Novo canal privado exige amizade aceita, sem revogar o acesso a um canal preexistente; relacionamentos rejeitados têm cooldown de 24 horas antes da reabertura da solicitação.
 - [x] **Recuperação por e-mail endurecida.** O token opaco é armazenado apenas como hash, substitui qualquer token anterior da conta, expira e só pode ser consumido uma vez. O SMTP da recuperação roda após o commit; falha de envio remove o token inutilizável. Conexão, leitura e escrita SMTP possuem timeout padrão de 5 segundos.
-- [x] **Origens explícitas.** CORS HTTP e handshake WebSocket compartilham a allowlist `ALLOWED_ORIGINS`; configuração vazia ou com curinga `*` impede a inicialização. O CORS da API expõe `Retry-After`; o CORS do bucket de anexos é separado e deve ser configurado no armazenamento.
+- [x] **Origens explícitas.** CORS HTTP e handshake WebSocket compartilham a allowlist `ALLOWED_ORIGINS`; configuração vazia ou com curinga `*` impede a inicialização. O CORS da API expõe `Retry-After`; uploads de anexos usam diretamente o endpoint HTTPS do Cloudinary.
 - [x] **Inicialização e exposição limitadas.** A migração legada permanece desligada por padrão. O Tomcat limita threads a 100, conexões a 1000 e fila de aceite a 100 por padrão; no Compose de produção, a porta da aplicação é publicada em loopback (`127.0.0.1`) salvo override explícito de `APP_BIND_ADDRESS`.
 
 ## Experiência desejada
@@ -73,7 +73,7 @@ Na primeira versão, as permissões podem ser simples: proprietário e membro. P
 | Redis | Mantém sessões de mídia e reconexão com TTL de 30 segundos e também sustenta o rate limiting distribuído por operação atômica. Indisponibilidade do limitador é tratada de forma fail-closed. |
 | Canais privados 1:1 | São conversas permanentes entre exatamente dois usuários, independentes de um servidor. Elas permitem mensagens, áudio, câmera e compartilhamento de tela em tempo real. Somente os dois participantes podem acessá-las. |
 | Canais de texto | Fazem parte do modelo de servidor desde o início. As mensagens privadas atuais serão remodeladas como mensagens de canal privado 1:1; mensagens de grupos serão vinculadas a canais de texto do servidor. |
-| Anexos de mensagens | Imagens/GIF, áudio, vídeo e documentos comuns da allowlist usam armazenamento de objetos privado compatível com S3. O backend reserva e valida o objeto, mas os bytes trafegam diretamente entre cliente e storage; PostgreSQL guarda somente metadados e vínculos. Cada arquivo pode ter até 10 MiB e cada mensagem, até quatro anexos. |
+| Anexos de mensagens | Imagens/GIF, vídeo e documentos comuns da allowlist usam assets privados no Cloudinary. O backend assina, reserva e valida o asset, mas os bytes trafegam diretamente entre cliente e Cloudinary; PostgreSQL guarda somente metadados e vínculos. Cada arquivo pode ter até 10 MiB e cada mensagem, até quatro anexos. Áudio não faz parte do escopo atual. |
 | Exclusão de conta | Usar soft delete: anonimizar nome, e-mail e credenciais, remover vínculos sociais ativos e memberships, mas preservar mensagens e canais privados como histórico. Servidores passam ao membro ativo mais antigo; sem sucessor, o servidor e suas dependências são removidos. |
 
 ## Conceitos de domínio
@@ -88,11 +88,11 @@ Na primeira versão, as permissões podem ser simples: proprietário e membro. P
 | Canal privado 1:1 | Conversa identificada por dois participantes únicos. Contém suas mensagens e mapeia para uma sala de mídia exclusiva enquanto uma chamada estiver ativa. |
 | Sessão de mídia | Presença efêmera de um membro em um canal de voz. Não armazena áudio, vídeo ou tela; registra quem está conectado e o estado das mídias publicadas. |
 | Mensagem | Texto e/ou até quatro anexos persistidos em um canal de texto de servidor ou em um canal privado 1:1, com autor e instante de envio. |
-| Anexo de mensagem | Reserva e metadados de um arquivo da allowlist pertencente a um autor e canal. Fica pendente até ser validada e associada atomicamente a uma mensagem; os bytes permanecem no armazenamento de objetos. |
+| Anexo de mensagem | Reserva e metadados de um arquivo da allowlist pertencente a um autor e canal. Fica pendente até ser validada e associada atomicamente a uma mensagem; os bytes permanecem em um asset privado no Cloudinary. |
 
 ## Anexos de mensagens (implementado)
 
-Anexos aceitam **imagens/GIF, áudio, vídeo e documentos comuns** com tamanho entre 1 byte e **10 MiB por arquivo**. Cada mensagem aceita no máximo **quatro** UUIDs de anexo, sem repetição, e deve possuir pelo menos texto não vazio ou um anexo. `content` pode ser omitido quando `attachmentIds` não estiver vazio. A extensão do nome original deve corresponder ao MIME declarado conforme a allowlist atual do backend:
+Anexos aceitam **imagens/GIF, vídeo e documentos comuns** com tamanho entre 1 byte e **10 MiB por arquivo**. Áudios, inclusive MP3, OGG, WAV e M4A, não são aceitos nesta etapa. Cada mensagem aceita no máximo **quatro** UUIDs de anexo, sem repetição, e deve possuir pelo menos texto não vazio ou um anexo. `content` pode ser omitido quando `attachmentIds` não estiver vazio. A extensão do nome original deve corresponder ao MIME declarado conforme a allowlist atual do backend:
 
 | MIME | Extensões aceitas |
 | --- | --- |
@@ -100,11 +100,6 @@ Anexos aceitam **imagens/GIF, áudio, vídeo e documentos comuns** com tamanho e
 | `image/png` | `.png` |
 | `image/webp` | `.webp` |
 | `image/gif` | `.gif` |
-| `audio/mpeg` | `.mp3` |
-| `audio/ogg` | `.ogg`, `.oga` |
-| `audio/wav` | `.wav` |
-| `audio/x-wav` | `.wav` |
-| `audio/mp4` | `.m4a` |
 | `video/mp4` | `.mp4` |
 | `video/webm` | `.webm` |
 | `application/pdf` | `.pdf` |
@@ -129,39 +124,35 @@ As reservas são criadas por endpoints REST autenticados:
 - `POST /direct-channels/{channelId}/attachments/uploads`, restrito aos participantes do canal privado;
 - `POST /servers/{serverId}/channels/{channelId}/attachments/uploads`, restrito aos membros do servidor e a canais `TEXT` pertencentes a ele.
 
-Ambos respondem `201` com `AttachmentUploadResponse`: `attachmentId`, `uploadUrl`, `requiredHeaders` e `expiresAt`. Também podem responder `400`, `401`, `403`, `404`, `429` ou `503`. O rate limit de reservas é separado do limite de mensagens: **20 por hora por usuário**, com burst de **8 por minuto por usuário**; indisponibilidade do Redis ou do armazenamento falha de forma fechada.
+Ambos respondem `201` com `AttachmentUploadResponse`: `attachmentId`, `uploadUrl`, `uploadMethod`, `formFields` e `expiresAt`. Também podem responder `400`, `401`, `403`, `404`, `429` ou `503`. O rate limit de reservas é separado do limite de mensagens: **20 por hora por usuário**, com burst de **8 por minuto por usuário**; indisponibilidade do Redis ou do armazenamento falha de forma fechada.
 
 ### Fluxo de upload e associação
 
 1. O frontend envia `originalName`, `contentType`, `size` e, somente para `image/*`, opcionalmente `width` junto com `height` para reservar o anexo no canal de destino.
-2. O backend valida autorização e metadados, cria a reserva pendente e devolve uma URL assinada de upload. A reserva expira em 15 minutos e a URL de upload em 5 minutos por padrão.
-3. O frontend executa `PUT` diretamente em `uploadUrl`, reproduzindo **exatamente** todos os `requiredHeaders` retornados. O arquivo não passa pelo processo Java.
-4. Após o `PUT`, o frontend envia a mensagem REST ou STOMP com o UUID retornado em `attachmentIds`.
-5. Antes de persistir a associação, o backend executa `HEAD` no objeto e confere tamanho, MIME, proprietário (`owner-id`), identificador do upload (`upload-id`), autor e canal da reserva. Reservas inexistentes, expiradas, já consumidas ou de outro autor/canal são rejeitadas.
+2. O backend valida autorização e metadados, cria a reserva pendente e assina os parâmetros de upload autenticado, incluindo um upload preset privado que limita o arquivo a 10 MiB no próprio Cloudinary. A reserva expira em 15 minutos; a assinatura de upload do Cloudinary é válida por até uma hora.
+3. O frontend cria um `FormData`, adiciona todos os pares de `formFields`, adiciona o arquivo no campo `file` e executa o `POST` indicado por `uploadMethod` diretamente em `uploadUrl`. O arquivo não passa pelo processo Java e o `CLOUDINARY_API_SECRET` nunca é devolvido ao cliente.
+4. Após o `POST`, o frontend envia a mensagem REST ou STOMP com o UUID retornado em `attachmentIds`.
+5. Antes de persistir a associação, o backend consulta o asset pela Upload API do Cloudinary e confere `public_id`, tipo privado, `resource_type`, formato, tamanho, proprietário, identificador do upload, autor e canal da reserva. Reservas inexistentes, expiradas, já consumidas ou de outro autor/canal são rejeitadas.
 6. A mensagem e seus anexos são associados na mesma transação. A resposta REST e o evento em `/user/queue/messages` sempre incluem `attachments` como array, inclusive vazio. Cada item contém `id`, `originalName`, `contentType`, `size`, as dimensões opcionais `width` e `height`, `downloadUrl` e `downloadExpiresAt`; a URL assinada de download expira em 5 minutos por padrão.
-7. O frontend decide a apresentação por `contentType`: renderiza `image/*` como imagem, `audio/*` como player de áudio e `video/*` como player de vídeo; qualquer outro MIME permitido é exibido como download/link de arquivo usando `originalName`.
+7. O frontend decide a apresentação por `contentType`: renderiza `image/*` como imagem e `video/*` como player de vídeo; qualquer outro MIME permitido é exibido como download/link de arquivo usando `originalName`.
 
-Somente metadados, estado da reserva e relacionamentos são persistidos no PostgreSQL. Os bytes não ficam no banco, não atravessam o backend Java e não são gravados no filesystem do container. O cleaner periódico remove reservas pendentes expiradas e tenta excluir seus objetos; por padrão, roda a cada 60 segundos.
+Somente metadados, estado da reserva e relacionamentos são persistidos no PostgreSQL. Os bytes não ficam no banco, não atravessam o backend Java e não são gravados no filesystem do container. O cleaner periódico roda a cada 60 segundos e remove reservas pendentes somente após a janela adicional de uma hora em que a assinatura Cloudinary ainda poderia ser reutilizada; assim, um upload tardio continua rastreável e será excluído em vez de virar asset órfão.
 
 ### Configuração e operação do armazenamento
 
 | Variável | Finalidade | Padrão |
 | --- | --- | --- |
-| `ATTACHMENTS_S3_INTERNAL_ENDPOINT` | Endpoint alcançável pelo backend para operações S3 como `HEAD` e exclusão. | obrigatório |
-| `ATTACHMENTS_S3_PUBLIC_ENDPOINT` | Endpoint público usado para assinar URLs acessíveis pelo frontend. | obrigatório |
-| `ATTACHMENTS_S3_REGION` | Região usada pelo cliente e pelo assinador S3. | `us-east-1` |
-| `ATTACHMENTS_S3_ACCESS_KEY` | Chave de acesso do storage. | obrigatório |
-| `ATTACHMENTS_S3_SECRET_KEY` | Segredo de acesso do storage. | obrigatório |
-| `ATTACHMENTS_S3_BUCKET` | Bucket privado de anexos. | obrigatório |
-| `ATTACHMENTS_S3_PATH_STYLE` | Ativa endereçamento path-style para serviços compatíveis. | `true` |
-| `ATTACHMENTS_UPLOAD_URL_TTL` | Validade das URLs assinadas de `PUT`. | `5m` |
-| `ATTACHMENTS_DOWNLOAD_URL_TTL` | Validade das URLs assinadas de `GET`. | `5m` |
+| `CLOUDINARY_CLOUD_NAME` | Nome do ambiente Cloudinary usado nos endpoints de upload e download. | obrigatório |
+| `CLOUDINARY_API_KEY` | Identificador público usado nas requisições assinadas. | obrigatório |
+| `CLOUDINARY_API_SECRET` | Segredo usado somente pelo backend para gerar assinaturas; nunca é enviado ao frontend. | obrigatório |
+| `CLOUDINARY_UPLOAD_PRESET` | Nome de um preset assinado com `max_file_size=10485760`; não pode ser unsigned. | obrigatório |
+| `ATTACHMENTS_DOWNLOAD_URL_TTL` | Validade das URLs temporárias de download privado, limitada a no máximo uma hora. | `5m` |
 | `ATTACHMENTS_PENDING_TTL` | Tempo máximo de uma reserva ainda não associada. | `15m` |
 | `ATTACHMENTS_CLEANUP_INTERVAL` | Intervalo entre execuções do cleaner de reservas expiradas. | `60s` |
 
-O bucket **privado precisa existir antes da inicialização/deploy**. Seu CORS é separado do CORS da API e deve liberar somente as origens explícitas do frontend e apenas os métodos `PUT`, `GET` e `HEAD`, com os headers `content-type` e o prefixo restrito `x-amz-meta-*`; nunca usar o wildcard universal `*` como origem ou para liberar todos os headers. Na API, `Retry-After` já é exposto por CORS para que o frontend consiga tratar respostas `429`; essa exposição não configura nem substitui o CORS do bucket. Recomenda-se configurar lifecycle no bucket para remover objetos órfãos que possam permanecer após exclusões por cascade no banco. Logs e mensagens de erro nunca devem registrar URLs assinadas, porque elas carregam credenciais temporárias na query string.
+É necessário criar um ambiente no Cloudinary, fornecer suas três credenciais ao backend e criar o preset indicado por `CLOUDINARY_UPLOAD_PRESET` como **signed**, com `max_file_size=10485760`. O upload usa assets com `type=private`, `overwrite=false`, formatos permitidos assinados e contexto de proprietário/reserva. Também é obrigatório habilitar **Strict Transformations** no ambiente para impedir que derivados de assets `private` sejam gerados e acessados publicamente. O download usa `private_download_url`, disponível sem token CDN premium, mas passa pelo endpoint autenticado da API, não usa cache CDN e consome mais largura de banda; por isso o TTL padrão é curto. Logs e mensagens de erro nunca devem registrar assinaturas, URLs temporárias ou o segredo da API. A conta deve ter seus créditos gratuitos monitorados, pois armazenamento, processamento e banda continuam sujeitos às cotas do provedor.
 
-Anexos de imagens/GIF, áudio, vídeo e documentos comuns presentes na allowlist estão implementados, todos sujeitos ao limite de 10 MiB por arquivo e quatro anexos por mensagem.
+Anexos de imagens/GIF, vídeo e documentos comuns presentes na allowlist estão implementados, todos sujeitos ao limite de 10 MiB por arquivo e quatro anexos por mensagem. Registros antigos que apontem para objetos S3 não são migrados automaticamente e exigem uma migração de dados antes da troca em produção.
 
 ## Como a mídia em tempo real deve funcionar
 
@@ -269,7 +260,7 @@ Entidades sugeridas para a primeira implementação:
 - `ChannelMessage`: `id`, `channel`, `author`, `content`, `createdAt`; só pode ser criada em canais `TEXT` por membros do servidor e pode usar conteúdo vazio quando possuir anexo;
 - `DirectChannel`: `id`, `participantOne`, `participantTwo`, `createdAt`, com unicidade para o par de usuários, independentemente da ordem;
 - `DirectMessage`: `id`, `directChannel`, `author`, `content`, `createdAt`; só pode ser criada por um dos dois participantes e pode usar conteúdo vazio quando possuir anexo;
-- `MessageAttachment`: UUID, autor, canal reservado, mensagem associada, chave do objeto, nome original, MIME, tamanho, dimensões e expiração da reserva; os bytes ficam somente no bucket privado;
+- `MessageAttachment`: UUID, autor, canal reservado, mensagem associada, identificador público interno do asset Cloudinary, nome original, MIME, tamanho, dimensões e expiração da reserva; os bytes ficam somente no Cloudinary;
 - `ServerInvite`: `id`, `server`, `inviter`, `invitee`, `status`, `createdAt`, `acceptedAt`, com unicidade para `server + invitee`;
 - `MediaSession`: estado efêmero no Redis, associado a um canal de voz de servidor ou a um canal privado 1:1. Durante uma reconexão, possui TTL de 30 segundos. Deve conter ao menos `channel`, `user`, `joinedAt`, `microphoneEnabled`, `cameraEnabled`, `screenShareEnabled`, `status` e `lastSeenAt`.
 
@@ -298,11 +289,11 @@ As mensagens privadas existentes representam conversas diretas entre dois usuár
 ### Marco 3 — anexos de arquivos em mensagens (implementado)
 
 - reservar uploads autenticados em canais privados e canais `TEXT` de servidor;
-- enviar arquivos diretamente ao bucket privado com URL `PUT` assinada e headers obrigatórios;
-- validar o objeto por `HEAD` e associá-lo atomicamente ao envio REST/STOMP da mensagem;
+- enviar arquivos diretamente ao Cloudinary por `POST multipart/form-data` autenticado com parâmetros assinados;
+- consultar e validar o asset privado pela Upload API e associá-lo atomicamente ao envio REST/STOMP da mensagem;
 - devolver anexos em respostas, históricos e eventos com URLs temporárias de download;
 - aplicar limite próprio de reservas e remover pendências expiradas com cleaner periódico;
-- aceitar imagens/GIF, áudio, vídeo e documentos comuns conforme a allowlist, com até 10 MiB por arquivo e quatro anexos por mensagem.
+- aceitar imagens/GIF, vídeo e documentos comuns conforme a allowlist, com até 10 MiB por arquivo e quatro anexos por mensagem; áudio não é aceito nesta etapa.
 
 ### Marco 4 — áudio, câmera e tela por WebRTC (primeira fatia implementada)
 
@@ -361,8 +352,9 @@ Esta seção consolida as pendências do produto inteiro. A prioridade é termin
 - [ ] Configurar um provedor SMTP de produção e as variáveis `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `MAIL_FROM`, `FRONTEND_PASSWORD_RESET_URL` e `FRONTEND_PROFILE_UPDATE_URL`. O ambiente local usa Mailpit nas portas 1025 e 8025.
 - [ ] Antes do deploy da atualização de perfil, verificar e corrigir e-mails duplicados na base; `TB_USER.email` passa a exigir unicidade e a nova tabela `TB_PENDING_PROFILE_UPDATE` será criada.
 - [ ] Atualizar o ambiente de deploy com `LIVEKIT_API_URL`, `LIVEKIT_CLIENT_URL`, `LIVEKIT_API_KEY` e `LIVEKIT_API_SECRET` antes de publicar uma versão que exija essas variáveis.
-- [ ] Provisionar previamente o bucket privado de anexos, configurar CORS somente para as origens do frontend com `PUT`/`GET`/`HEAD`, `content-type` e o prefixo restrito `x-amz-meta-*`, sem wildcard universal `*`, e recomendar lifecycle para objetos órfãos de exclusões por cascade.
-- [ ] Configurar `ATTACHMENTS_S3_INTERNAL_ENDPOINT`, `ATTACHMENTS_S3_PUBLIC_ENDPOINT`, `ATTACHMENTS_S3_REGION`, `ATTACHMENTS_S3_ACCESS_KEY`, `ATTACHMENTS_S3_SECRET_KEY`, `ATTACHMENTS_S3_BUCKET`, `ATTACHMENTS_S3_PATH_STYLE`, `ATTACHMENTS_UPLOAD_URL_TTL`, `ATTACHMENTS_DOWNLOAD_URL_TTL`, `ATTACHMENTS_PENDING_TTL` e `ATTACHMENTS_CLEANUP_INTERVAL` no ambiente de deploy.
+- [ ] Criar e proteger a conta/ambiente Cloudinary, criar um upload preset **signed** com `max_file_size=10485760`, habilitar **Strict Transformations**, acompanhar os créditos gratuitos e validar upload, inspeção, exclusão e download privado no ambiente de produção.
+- [ ] Configurar `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_UPLOAD_PRESET`, `ATTACHMENTS_DOWNLOAD_URL_TTL`, `ATTACHMENTS_PENDING_TTL` e `ATTACHMENTS_CLEANUP_INTERVAL` no ambiente de deploy.
+- [ ] Se já houver anexos S3 em produção, migrar seus bytes ao Cloudinary e atualizar `objectKey` antes de remover o armazenamento anterior; não há compatibilidade automática entre os provedores.
 
 ### Frontend — obrigatório
 
@@ -375,7 +367,7 @@ Esta seção consolida as pendências do produto inteiro. A prioridade é termin
 - [ ] Desconectar do LiveKit e descartar a credencial anterior ao sair ou trocar de canal.
 - [ ] Renderizar participantes e indicadores de microfone, câmera, tela e fala ativa a partir do estado confirmado pelo LiveKit/backend.
 - [ ] Completar as telas e fluxos de autenticação, amizades, servidores, canais, convites, mensagens e canais privados 1:1, caso ainda não estejam implementados no cliente.
-- [ ] Integrar anexos: reservar, executar o `PUT` com exatamente os headers retornados, enviar `attachmentIds`, renovar o histórico quando `downloadUrl` expirar e renderizar conforme `contentType` — `image/*` como imagem, `audio/*` como áudio, `video/*` como vídeo e os demais como download/link usando `originalName`.
+- [ ] Integrar anexos: reservar, criar `FormData` com todos os `formFields` e o arquivo no campo `file`, executar o `POST` em `uploadUrl`, enviar `attachmentIds`, renovar o histórico quando `downloadUrl` expirar e renderizar conforme `contentType` — `image/*` como imagem, `video/*` como vídeo e os demais como download/link usando `originalName`.
 - [ ] Implementar as telas “esqueci minha senha” e “definir nova senha”, usando os endpoints `/users/password-reset/request`, `/users/me/password-reset` e `/users/password-reset/confirm`.
 - [ ] Implementar a edição de nome/e-mail e a tela de confirmação do token recebido no endereço antigo, usando `PUT /users/me` e `POST /users/profile-update/confirm`. Após trocar o e-mail, limpar a sessão local e solicitar novo login.
 - [ ] Assinar as filas privadas de amizades, convites e membros logo após o `CONNECT`, atualizar a UI pelos eventos recebidos e refazer os snapshots REST após reconexão; eventos STOMP são efêmeros e não substituem as consultas.

@@ -64,9 +64,14 @@ class MessageAttachmentIntegrationTests {
         JsonNode reservation = reserveDirect(author, channel, "photo.png", "image/png", 1024, 640, 480);
         String attachmentId = reservation.get("attachmentId").asText();
         assertThat(reservation.get("uploadUrl").asText()).startsWith("memory://");
-        assertThat(reservation.get("requiredHeaders").get("content-type").asText()).isEqualTo("image/png");
-        assertThat(reservation.get("requiredHeaders").get("x-amz-meta-owner-id").asText()).isEqualTo(author.getId());
-        assertThat(reservation.get("requiredHeaders").get("x-amz-meta-upload-id").asText()).isEqualTo(attachmentId);
+        assertThat(reservation.get("uploadMethod").asText()).isEqualTo("POST");
+        assertThat(reservation.get("formFields").get("api_key").asText()).isEqualTo("test-api-key");
+        assertThat(reservation.get("formFields").get("upload_preset").asText())
+                .isEqualTo("test-private-attachments");
+        assertThat(reservation.get("formFields").get("signature").asText()).isNotBlank();
+        assertThat(reservation.get("formFields").get("public_id").asText()).contains(author.getId());
+        assertThat(reservation.get("formFields").get("type").asText()).isEqualTo("private");
+        assertThat(reservation.get("formFields").get("overwrite").asText()).isEqualTo("false");
 
         mvc.perform(post("/direct-channels/" + channel.getId() + "/messages")
                         .header("Authorization", bearer(author))
@@ -98,14 +103,12 @@ class MessageAttachmentIntegrationTests {
     }
 
     @Test
-    void audioVideoAndDocumentsCanBeDeliveredAsMessageAttachments() throws Exception {
+    void videoAndDocumentsCanBeDeliveredAsMessageAttachments() throws Exception {
         User author = user();
         User participant = user();
         DirectChannel channel = directChannels.save(new DirectChannel(author, participant));
 
         String pdfId = reserveDirect(author, channel, "report.pdf", "application/pdf", 4096, null, null)
-                .get("attachmentId").asText();
-        String audioId = reserveDirect(author, channel, "voice.mp3", "audio/mpeg", 8192, null, null)
                 .get("attachmentId").asText();
         String videoId = reserveDirect(author, channel, "clip.webm", "video/webm", 16384, null, null)
                 .get("attachmentId").asText();
@@ -115,11 +118,10 @@ class MessageAttachmentIntegrationTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(Map.of(
                                 "content", "files",
-                                "attachmentIds", List.of(pdfId, audioId, videoId)))))
+                                "attachmentIds", List.of(pdfId, videoId)))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.attachments[0].contentType").value("application/pdf"))
-                .andExpect(jsonPath("$.attachments[1].contentType").value("audio/mpeg"))
-                .andExpect(jsonPath("$.attachments[2].contentType").value("video/webm"))
+                .andExpect(jsonPath("$.attachments[1].contentType").value("video/webm"))
                 .andExpect(jsonPath("$.attachments[0].downloadUrl").isNotEmpty());
     }
 
@@ -131,7 +133,7 @@ class MessageAttachmentIntegrationTests {
         String attachmentId = reserveDirect(author, channel, "missing.png", "image/png", 512, 20, 20)
                 .get("attachmentId").asText();
         var attachment = attachments.findById(attachmentId).orElseThrow();
-        objectStorage.delete(attachment.getObjectKey());
+        objectStorage.delete(attachment.getObjectKey(), attachment.getContentType());
 
         mvc.perform(post("/direct-channels/" + channel.getId() + "/messages")
                         .header("Authorization", bearer(author))
@@ -204,6 +206,8 @@ class MessageAttachmentIntegrationTests {
         mvc.perform(reserveDirectRequest(author, channel, "report.pdf", "application/pdf", 100, 10, 10))
                 .andExpect(status().isBadRequest());
         mvc.perform(reserveDirectRequest(author, channel, "payload.exe", "application/octet-stream", 100, null, null))
+                .andExpect(status().isBadRequest());
+        mvc.perform(reserveDirectRequest(author, channel, "voice.mp3", "audio/mpeg", 100, null, null))
                 .andExpect(status().isBadRequest());
         mvc.perform(reserveDirectRequest(author, channel, "photo.png", "image/png", 10L * 1024 * 1024 + 1, 10, 10))
                 .andExpect(status().isBadRequest());

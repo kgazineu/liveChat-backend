@@ -53,11 +53,6 @@ public class MessageAttachmentService {
             Map.entry("image/png", Set.of("png")),
             Map.entry("image/webp", Set.of("webp")),
             Map.entry("image/gif", Set.of("gif")),
-            Map.entry("audio/mpeg", Set.of("mp3")),
-            Map.entry("audio/ogg", Set.of("ogg", "oga")),
-            Map.entry("audio/wav", Set.of("wav")),
-            Map.entry("audio/x-wav", Set.of("wav")),
-            Map.entry("audio/mp4", Set.of("m4a")),
             Map.entry("video/mp4", Set.of("mp4")),
             Map.entry("video/webm", Set.of("webm")),
             Map.entry("application/pdf", Set.of("pdf")),
@@ -117,7 +112,7 @@ public class MessageAttachmentService {
             throw new AccessDeniedException("You are not a participant of this direct channel");
         }
 
-        MessageAttachment attachment = MessageAttachment.forDirectChannel(channel, author, newObjectKey(author),
+        MessageAttachment attachment = MessageAttachment.forDirectChannel(channel, author, newObjectKey(author, upload),
                 upload.originalName(), upload.contentType(), upload.size(), upload.width(), upload.height(),
                 Instant.now().plus(pendingTtl));
         attachmentRepository.save(attachment);
@@ -143,7 +138,7 @@ public class MessageAttachmentService {
             throw new AccessDeniedException("You are not a member of this server");
         }
 
-        MessageAttachment attachment = MessageAttachment.forServerChannel(channel, author, newObjectKey(author),
+        MessageAttachment attachment = MessageAttachment.forServerChannel(channel, author, newObjectKey(author, upload),
                 upload.originalName(), upload.contentType(), upload.size(), upload.width(), upload.height(),
                 Instant.now().plus(pendingTtl));
         attachmentRepository.save(attachment);
@@ -236,7 +231,7 @@ public class MessageAttachmentService {
     }
 
     private void verifyUploadedObject(MessageAttachment attachment) {
-        StoredObjectMetadata stored = objectStorage.head(attachment.getObjectKey());
+        StoredObjectMetadata stored = objectStorage.inspect(attachment.getObjectKey(), attachment.getContentType());
         if (stored.contentLength() != attachment.getSize()) {
             throw new InvalidRequestException("Uploaded attachment size does not match the reservation");
         }
@@ -268,9 +263,9 @@ public class MessageAttachmentService {
     }
 
     private AttachmentUploadResponseDTO signedUpload(MessageAttachment attachment) {
-        SignedUpload signed = objectStorage.presignPut(attachment.getObjectKey(), attachment.getContentType(),
+        SignedUpload signed = objectStorage.signUpload(attachment.getObjectKey(), attachment.getContentType(),
                 attachment.getSize(), attachment.getAuthor().getId(), attachment.getId());
-        return new AttachmentUploadResponseDTO(attachment.getId(), signed.url(), signed.requiredHeaders(),
+        return new AttachmentUploadResponseDTO(attachment.getId(), signed.url(), signed.method(), signed.formFields(),
                 signed.expiresAt());
     }
 
@@ -285,7 +280,8 @@ public class MessageAttachmentService {
     }
 
     private MessageAttachmentResponseDTO attachmentResponse(MessageAttachment attachment) {
-        SignedDownload signed = objectStorage.presignGet(attachment.getObjectKey());
+        SignedDownload signed = objectStorage.signDownload(attachment.getObjectKey(), attachment.getOriginalName(),
+                attachment.getContentType());
         return new MessageAttachmentResponseDTO(attachment.getId(), attachment.getOriginalName(),
                 attachment.getContentType(), attachment.getSize(), attachment.getWidth(), attachment.getHeight(),
                 signed.url(), signed.expiresAt());
@@ -374,8 +370,11 @@ public class MessageAttachmentService {
         rateLimiter.check("attachment-upload-burst-user", userId, 8, UPLOAD_BURST_WINDOW);
     }
 
-    private String newObjectKey(User author) {
-        return "message-attachments/" + author.getId() + "/" + UUID.randomUUID();
+    private String newObjectKey(User author, ValidatedUpload upload) {
+        String key = "message-attachments/" + author.getId() + "/" + UUID.randomUUID();
+        return upload.contentType().startsWith("image/") || upload.contentType().startsWith("video/")
+                ? key
+                : key + "." + extensionOf(upload.originalName());
     }
 
     private record ValidatedUpload(String originalName, String contentType, long size, Integer width, Integer height) {
