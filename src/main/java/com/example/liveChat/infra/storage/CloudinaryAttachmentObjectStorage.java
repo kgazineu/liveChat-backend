@@ -2,6 +2,7 @@ package com.example.liveChat.infra.storage;
 
 import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -30,6 +31,7 @@ public class CloudinaryAttachmentObjectStorage implements AttachmentObjectStorag
     private final String uploadPreset;
     private final Duration downloadUrlTtl;
 
+    @Autowired
     public CloudinaryAttachmentObjectStorage(CloudinaryAttachmentStorageProperties properties) {
         this(properties, configuredCloudinary(properties));
     }
