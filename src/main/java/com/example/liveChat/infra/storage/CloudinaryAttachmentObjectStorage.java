@@ -1,6 +1,7 @@
 package com.example.liveChat.infra.storage;
 
 import com.cloudinary.Cloudinary;
+import com.cloudinary.api.exceptions.NotFound;
 import com.cloudinary.utils.ObjectUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
@@ -107,10 +108,10 @@ public class CloudinaryAttachmentObjectStorage implements AttachmentObjectStorag
         requireText(objectKey, "objectKey");
         requireText(contentType, "contentType");
         try {
-            Map<?, ?> response = cloudinary.uploader().explicit(objectKey, ObjectUtils.asMap(
+            Map<?, ?> response = cloudinary.api().resource(objectKey, ObjectUtils.asMap(
                     "resource_type", resourceType(contentType),
                     "type", PRIVATE_DELIVERY_TYPE,
-                    "return_error", true));
+                    "context", true));
             throwForProviderError(response, "inspect Cloudinary asset");
 
             String publicId = stringValue(response.get("public_id"));
@@ -127,9 +128,11 @@ public class CloudinaryAttachmentObjectStorage implements AttachmentObjectStorag
                     ? detectedContentType(actualResourceType, format, objectKey, response)
                     : "application/octet-stream";
             return new StoredObjectMetadata(bytes, actualContentType, metadata);
+        } catch (NotFound exception) {
+            throw new AttachmentObjectNotFoundException(exception);
         } catch (AttachmentStorageException exception) {
             throw exception;
-        } catch (IOException | RuntimeException exception) {
+        } catch (Exception exception) {
             throw new AttachmentStorageException("inspect Cloudinary asset", exception);
         }
     }

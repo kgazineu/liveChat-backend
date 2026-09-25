@@ -1,7 +1,9 @@
 package com.example.liveChat.infra.storage;
 
+import com.cloudinary.Api;
 import com.cloudinary.Cloudinary;
-import com.cloudinary.Uploader;
+import com.cloudinary.api.ApiResponse;
+import com.cloudinary.api.exceptions.NotFound;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -11,8 +13,10 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CloudinaryAttachmentObjectStorageTests {
@@ -68,21 +72,22 @@ class CloudinaryAttachmentObjectStorageTests {
     }
 
     @Test
-    void inspectsPrivateAssetMetadataThroughTheUploadApi() throws Exception {
+    void inspectsPrivateAssetMetadataThroughTheAdminApi() throws Exception {
         Cloudinary cloudinary = mock(Cloudinary.class);
-        Uploader uploader = mock(Uploader.class);
-        when(cloudinary.uploader()).thenReturn(uploader);
-        when(uploader.explicit(eq("message-attachments/user-id/object-id"), anyMap())).thenReturn(Map.of(
-                "public_id", "message-attachments/user-id/object-id",
-                "resource_type", "image",
-                "type", "private",
-                "format", "png",
-                "bytes", 2048,
-                "width", 640,
-                "height", 480,
-                "context", Map.of("custom", Map.of(
-                        "owner_id", "user-id",
-                        "upload_id", "upload-id"))));
+        Api api = mock(Api.class);
+        ApiResponse response = mock(ApiResponse.class);
+        when(cloudinary.api()).thenReturn(api);
+        when(api.resource(eq("message-attachments/user-id/object-id"), anyMap())).thenReturn(response);
+        when(response.get("public_id")).thenReturn("message-attachments/user-id/object-id");
+        when(response.get("resource_type")).thenReturn("image");
+        when(response.get("type")).thenReturn("private");
+        when(response.get("format")).thenReturn("png");
+        when(response.get("bytes")).thenReturn(2048);
+        when(response.get("width")).thenReturn(640);
+        when(response.get("height")).thenReturn(480);
+        when(response.get("context")).thenReturn(Map.of("custom", Map.of(
+                "owner_id", "user-id",
+                "upload_id", "upload-id")));
         CloudinaryAttachmentObjectStorage storage =
                 new CloudinaryAttachmentObjectStorage(properties(), cloudinary);
 
@@ -94,15 +99,18 @@ class CloudinaryAttachmentObjectStorageTests {
         assertThat(metadata.metadata())
                 .containsEntry("owner-id", "user-id")
                 .containsEntry("upload-id", "upload-id");
+        verify(api).resource(eq("message-attachments/user-id/object-id"), argThat(options ->
+                "image".equals(options.get("resource_type"))
+                        && "private".equals(options.get("type"))
+                        && Boolean.TRUE.equals(options.get("context"))));
     }
 
     @Test
     void mapsACloudinaryNotFoundResponseToAnIncompleteUpload() throws Exception {
         Cloudinary cloudinary = mock(Cloudinary.class);
-        Uploader uploader = mock(Uploader.class);
-        when(cloudinary.uploader()).thenReturn(uploader);
-        when(uploader.explicit(eq("missing"), anyMap())).thenReturn(Map.of(
-                "error", Map.of("http_code", 404, "message", "Resource not found")));
+        Api api = mock(Api.class);
+        when(cloudinary.api()).thenReturn(api);
+        when(api.resource(eq("missing"), anyMap())).thenThrow(new NotFound("Resource not found"));
         CloudinaryAttachmentObjectStorage storage =
                 new CloudinaryAttachmentObjectStorage(properties(), cloudinary);
 
