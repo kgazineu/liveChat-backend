@@ -51,7 +51,11 @@ public class MessageController {
             @ApiResponse(responseCode = "403", description = "Usuário não participa do canal",
                     content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
             @ApiResponse(responseCode = "404", description = "Canal inexistente",
-                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "409", description = "Upload ainda não concluído ou indisponível",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "429", description = "Limite de mensagens excedido"),
+            @ApiResponse(responseCode = "503", description = "Armazenamento ou limitador indisponível")
     })
     public ResponseEntity<MessageResponseDTO> sendDirectMessage(@PathVariable String channelId,
                                                                   @RequestBody MessageRequestDTO request,
@@ -96,7 +100,11 @@ public class MessageController {
             @ApiResponse(responseCode = "403", description = "Usuário não é membro do servidor",
                     content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
             @ApiResponse(responseCode = "404", description = "Canal inexistente ou não pertence ao servidor",
-                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class)))
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "409", description = "Upload ainda não concluído ou indisponível",
+                    content = @Content(schema = @Schema(implementation = RestErrorMessage.class))),
+            @ApiResponse(responseCode = "429", description = "Limite de mensagens excedido"),
+            @ApiResponse(responseCode = "503", description = "Armazenamento ou limitador indisponível")
     })
     public ResponseEntity<MessageResponseDTO> sendChannelMessage(@PathVariable String serverId,
                                                                    @PathVariable String channelId,

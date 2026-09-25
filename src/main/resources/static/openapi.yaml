@@ -4,7 +4,9 @@ info:
   version: 1.0.0
   description: >-
     API REST e contrato WebSocket/STOMP do LiveChat. Datas no formato
-    date-time são representadas em UTC.
+    date-time são representadas em UTC. Em respostas 429, o header `Retry-After`
+    é exposto ao frontend pelo CORS da API. Anexos são enviados diretamente ao
+    endpoint de upload do Cloudinary, sem atravessar o processo Java.
 tags:
   - name: Usuários
     description: Cadastro, autenticação e gerenciamento da conta.
@@ -12,6 +14,8 @@ tags:
     description: Solicitações e relacionamentos entre usuários.
   - name: Mensagens
     description: Histórico e entrega de mensagens de canais privados e de texto em servidores.
+  - name: Anexos
+    description: Reserva de uploads diretos de arquivos para mensagens.
   - name: Canais privados
     description: Conversas privadas entre exatamente dois usuários.
   - name: Servidores
@@ -488,6 +492,47 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /direct-channels/{channelId}/attachments/uploads:
+    post:
+      tags: [Anexos]
+      operationId: reserveDirectChannelAttachmentUpload
+      summary: Reserva o upload de um anexo para um canal privado
+      description: >-
+        Exige que o usuário seja participante do canal. Cria uma reserva pendente por 15 minutos por
+        padrão e retorna autorização assinada para um `POST multipart/form-data` direto no Cloudinary;
+        o arquivo não atravessa a API Java. O cliente deve adicionar todos os `formFields` ao `FormData`,
+        adicionar o arquivo no campo `file` e, após concluir o upload, incluir o `attachmentId` em
+        `attachmentIds` ao enviar a mensagem. A assinatura do Cloudinary é válida por até uma hora.
+        Esta operação possui limite separado de 20 reservas por hora e burst de 8 por minuto, por usuário.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DirectChannelId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachmentUploadRequest'
+      responses:
+        '201':
+          description: Upload reservado; a assinatura e os campos do formulário são temporários.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentUploadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/AttachmentServiceUnavailable'
   /direct-channels/{channelId}/media-sessions:
     post:
       tags: [Presença de mídia]
@@ -593,8 +638,12 @@ paths:
       operationId: sendDirectChannelMessage
       summary: Envia uma mensagem em um canal privado
       description: >-
-        Somente um dos dois participantes do canal pode enviar mensagens. O limite compartilhado
-        entre envios privados e de servidor é de 60 mensagens por minuto, com burst de 10 a cada 5 segundos, por usuário.
+        Somente um dos dois participantes do canal pode enviar mensagens. A requisição deve conter
+        texto não vazio, de um a quatro `attachmentIds` únicos, ou ambos. Para cada anexo, o backend
+        consulta o asset privado no Cloudinary, valida tamanho, formato, proprietário, upload e canal
+        reservados e associa todos os anexos à mensagem na mesma transação. O limite compartilhado entre
+        envios privados e de servidor é de 60 mensagens por minuto, com burst de 10 a cada 5 segundos,
+        por usuário.
       security:
         - bearerAuth: []
       parameters:
@@ -620,10 +669,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '503':
-          $ref: '#/components/responses/RateLimitUnavailable'
+          $ref: '#/components/responses/AttachmentServiceUnavailable'
     get:
       tags: [Mensagens]
       operationId: listDirectChannelMessages
@@ -650,6 +701,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/AttachmentServiceUnavailable'
   /servers:
     post:
       tags: [Servidores]
@@ -799,6 +852,49 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /servers/{serverId}/channels/{channelId}/attachments/uploads:
+    post:
+      tags: [Anexos]
+      operationId: reserveServerChannelAttachmentUpload
+      summary: Reserva o upload de um anexo para um canal de texto
+      description: >-
+        Exige participação no servidor e aceita somente um canal `TEXT` pertencente ao servidor.
+        Cria uma reserva pendente por 15 minutos por padrão e retorna autorização assinada para um
+        `POST multipart/form-data` direto no Cloudinary; o arquivo não atravessa a API Java. O cliente
+        deve adicionar todos os `formFields` ao `FormData`, adicionar o arquivo no campo `file` e, após
+        concluir o upload, incluir o `attachmentId` em `attachmentIds` ao enviar a mensagem. A assinatura
+        do Cloudinary é válida por até uma hora. Esta operação possui limite separado de 20 reservas por
+        hora e burst de 8 por minuto, por usuário.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServerId'
+        - $ref: '#/components/parameters/ServerChannelId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachmentUploadRequest'
+      responses:
+        '201':
+          description: Upload reservado; a assinatura e os campos do formulário são temporários.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentUploadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/AttachmentServiceUnavailable'
   /servers/{serverId}/channels/{channelId}/media-sessions:
     post:
       tags: [Presença de mídia]
@@ -916,7 +1012,10 @@ paths:
       operationId: sendServerTextChannelMessage
       summary: Envia uma mensagem em um canal de texto
       description: >-
-        Exige participação no servidor e rejeita canais de voz. O limite compartilhado entre envios
+        Exige participação no servidor e rejeita canais de voz. A requisição deve conter texto não
+        vazio, de um a quatro `attachmentIds` únicos, ou ambos. Para cada anexo, o backend consulta o
+        asset privado no Cloudinary, valida tamanho, formato, proprietário, upload e canal reservados e
+        associa todos os anexos à mensagem na mesma transação. O limite compartilhado entre envios
         privados e de servidor é de 60 mensagens por minuto, com burst de 10 a cada 5 segundos, por usuário.
       security:
         - bearerAuth: []
@@ -944,10 +1043,12 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '503':
-          $ref: '#/components/responses/RateLimitUnavailable'
+          $ref: '#/components/responses/AttachmentServiceUnavailable'
     get:
       tags: [Mensagens]
       operationId: listServerTextChannelMessages
@@ -975,6 +1076,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/AttachmentServiceUnavailable'
   /servers/{serverId}/invites:
     post:
       tags: [Servidores]
@@ -1240,7 +1343,9 @@ components:
       description: Limite de requisições excedido.
       headers:
         Retry-After:
-          description: Segundos inteiros até uma nova tentativa ser permitida.
+          description: >-
+            Segundos inteiros até uma nova tentativa ser permitida; este header é exposto ao
+            frontend pelo CORS da API.
           schema:
             type: integer
             format: int64
@@ -1251,6 +1356,14 @@ components:
             $ref: '#/components/schemas/Error'
     RateLimitUnavailable:
       description: Serviço de rate limiting indisponível; a operação falha de forma fechada.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    AttachmentServiceUnavailable:
+      description: >-
+        Cloudinary ou serviço de rate limiting indisponível. Reservas e envios falham de forma
+        fechada; históricos podem falhar se não for possível assinar as URLs de download.
       content:
         application/json:
           schema:
@@ -1510,19 +1623,228 @@ components:
         createdAt:
           type: string
           format: date-time
+    AttachmentUploadRequest:
+      type: object
+      description: >-
+        Metadados do arquivo a ser enviado. A extensão de `originalName` deve corresponder ao
+        `contentType`, e o tamanho máximo é 10 MiB. O upload preset assinado também aplica esse limite
+        diretamente no Cloudinary. `width` e `height` são opcionais, permitidos somente para `image/*`
+        e devem ser informados juntos. Executáveis, `application/octet-stream`,
+        HTML, SVG e arquivos compactados/archives são rejeitados porque não constam na allowlist.
+      required: [originalName, contentType, size]
+      oneOf:
+        - description: Imagem com as duas dimensões informadas.
+          required: [width, height]
+          properties:
+            contentType:
+              enum: [image/jpeg, image/png, image/webp, image/gif]
+        - description: Arquivo sem dimensões, inclusive imagens quando elas não forem conhecidas.
+          not:
+            anyOf:
+              - required: [width]
+              - required: [height]
+      properties:
+        originalName:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Nome simples do arquivo, sem `/`, `\\` ou caracteres de controle.
+          example: relatorio.pdf
+        contentType:
+          type: string
+          enum:
+            - image/jpeg
+            - image/png
+            - image/webp
+            - image/gif
+            - video/mp4
+            - video/webm
+            - application/pdf
+            - text/plain
+            - text/csv
+            - text/markdown
+            - application/json
+            - application/msword
+            - application/vnd.ms-excel
+            - application/vnd.ms-powerpoint
+            - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+            - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+            - application/vnd.openxmlformats-officedocument.presentationml.presentation
+            - application/vnd.oasis.opendocument.text
+            - application/vnd.oasis.opendocument.spreadsheet
+            - application/vnd.oasis.opendocument.presentation
+          description: >-
+            MIME declarado e extensões aceitas, sem distinção entre maiúsculas e minúsculas:
+            `image/jpeg` (`.jpg`, `.jpeg`), `image/png` (`.png`), `image/webp` (`.webp`),
+            `image/gif` (`.gif`), `video/mp4` (`.mp4`), `video/webm` (`.webm`),
+            `application/pdf` (`.pdf`),
+            `text/plain` (`.txt`), `text/csv` (`.csv`), `text/markdown` (`.md`),
+            `application/json` (`.json`), `application/msword` (`.doc`),
+            `application/vnd.ms-excel` (`.xls`), `application/vnd.ms-powerpoint` (`.ppt`),
+            `application/vnd.openxmlformats-officedocument.wordprocessingml.document` (`.docx`),
+            `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (`.xlsx`),
+            `application/vnd.openxmlformats-officedocument.presentationml.presentation` (`.pptx`),
+            `application/vnd.oasis.opendocument.text` (`.odt`),
+            `application/vnd.oasis.opendocument.spreadsheet` (`.ods`) e
+            `application/vnd.oasis.opendocument.presentation` (`.odp`).
+          example: application/pdf
+        size:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 10485760
+          description: Tamanho exato do arquivo em bytes; o máximo é 10 MiB.
+          example: 245760
+        width:
+          type: integer
+          minimum: 1
+          maximum: 20000
+          description: >-
+            Largura declarada em pixels; opcional, exclusiva de `image/*` e sempre enviada com `height`.
+          example: 1280
+        height:
+          type: integer
+          minimum: 1
+          maximum: 20000
+          description: >-
+            Altura declarada em pixels; opcional, exclusiva de `image/*` e sempre enviada com `width`.
+          example: 720
+    AttachmentUploadResponse:
+      type: object
+      description: Autorização temporária para upload direto e autenticado no Cloudinary.
+      required: [attachmentId, uploadUrl, uploadMethod, formFields, expiresAt]
+      properties:
+        attachmentId:
+          type: string
+          format: uuid
+          description: UUID da reserva que deve ser enviado em `MessageRequest.attachmentIds`.
+        uploadUrl:
+          type: string
+          format: uri
+          description: Endpoint Cloudinary que recebe o formulário multipart.
+        uploadMethod:
+          type: string
+          enum: [POST]
+          description: Método HTTP que deve ser usado em `uploadUrl`.
+        formFields:
+          type: object
+          description: >-
+            Campos assinados que o cliente deve adicionar ao `FormData`. O campo binário `file`
+            deve ser adicionado separadamente e o `api_secret` nunca é retornado.
+          additionalProperties:
+            type: string
+          example:
+            api_key: '123456789012345'
+            upload_preset: livechat-private-attachments
+            timestamp: '1790280000'
+            signature: 64f24a73f440f2d546a56930c047cb8c44ec86aa
+            public_id: message-attachments/550e8400-e29b-41d4-a716-446655440000/80e118cd-9ee7-4545-8916-f74cd265f82b
+            type: private
+            overwrite: 'false'
+            allowed_formats: png
+        expiresAt:
+          type: string
+          format: date-time
+          description: Instante UTC de expiração da assinatura Cloudinary, no máximo uma hora após a emissão.
     MessageRequest:
       type: object
-      required: [content]
+      description: >-
+        Deve conter texto não vazio após trim, pelo menos um `attachmentId`, ou ambos. `content`
+        pode ser omitido quando `attachmentIds` não estiver vazio.
+      anyOf:
+        - required: [content]
+          properties:
+            content:
+              pattern: '[\s\S]*\S[\s\S]*'
+        - required: [attachmentIds]
+          properties:
+            attachmentIds:
+              minItems: 1
       properties:
         content:
           type: string
-          minLength: 1
           maxLength: 4000
-          description: Texto não vazio; espaços nas extremidades são removidos antes da persistência.
+          description: Texto da mensagem; espaços nas extremidades são removidos antes da persistência.
           example: Olá!
+        attachmentIds:
+          type: array
+          minItems: 1
+          maxItems: 4
+          uniqueItems: true
+          description: UUIDs de reservas pendentes, concluídas e criadas pelo autor para este mesmo canal.
+          items:
+            type: string
+            format: uuid
+    MessageAttachment:
+      type: object
+      description: >-
+        Metadados de um anexo associado à mensagem; o arquivo permanece privado no Cloudinary.
+        O frontend deve renderizar `image/*` e `video/*` como imagem e vídeo, respectivamente;
+        os demais tipos devem aparecer como download/link usando `originalName`.
+      required: [id, originalName, contentType, size, downloadUrl, downloadExpiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        originalName:
+          type: string
+          maxLength: 255
+          example: foto.png
+        contentType:
+          type: string
+          enum:
+            - image/jpeg
+            - image/png
+            - image/webp
+            - image/gif
+            - video/mp4
+            - video/webm
+            - application/pdf
+            - text/plain
+            - text/csv
+            - text/markdown
+            - application/json
+            - application/msword
+            - application/vnd.ms-excel
+            - application/vnd.ms-powerpoint
+            - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+            - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+            - application/vnd.openxmlformats-officedocument.presentationml.presentation
+            - application/vnd.oasis.opendocument.text
+            - application/vnd.oasis.opendocument.spreadsheet
+            - application/vnd.oasis.opendocument.presentation
+        size:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 10485760
+          description: Tamanho do arquivo em bytes.
+        width:
+          type: integer
+          minimum: 1
+          maximum: 20000
+          nullable: true
+          description: >-
+            Largura opcional em pixels, presente com valor somente para `image/*` e sempre junto com `height`.
+        height:
+          type: integer
+          minimum: 1
+          maximum: 20000
+          nullable: true
+          description: >-
+            Altura opcional em pixels, presente com valor somente para `image/*` e sempre junto com `width`.
+        downloadUrl:
+          type: string
+          format: uri
+          description: URL assinada temporária para download direto; expira em cinco minutos por padrão.
+        downloadExpiresAt:
+          type: string
+          format: date-time
+          description: Instante UTC de expiração de `downloadUrl`.
     Message:
       type: object
-      required: [id, channelId, content, authorId, authorName, createdAt]
+      description: Resposta REST e evento entregue em `/user/queue/messages`.
+      required: [id, channelId, content, authorId, authorName, createdAt, attachments]
       properties:
         id:
           type: integer
@@ -1533,6 +1855,7 @@ components:
           description: UUID do canal que contém a mensagem.
         content:
           type: string
+          description: Texto persistido; é uma string vazia quando a mensagem contém somente anexos.
           example: Olá!
         authorId:
           type: string
@@ -1544,6 +1867,12 @@ components:
           type: string
           format: date-time
           description: Instante UTC em que a mensagem foi persistida.
+        attachments:
+          type: array
+          maxItems: 4
+          description: Sempre presente; pode ser vazio. Cada URL de download possui expiração própria.
+          items:
+            $ref: '#/components/schemas/MessageAttachment'
     MediaStateRequest:
       type: object
       minProperties: 1

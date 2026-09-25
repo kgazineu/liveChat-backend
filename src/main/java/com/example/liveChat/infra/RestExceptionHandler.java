@@ -12,6 +12,8 @@ import com.example.liveChat.exceptions.ServerChannelNotFoundException;
 import com.example.liveChat.exceptions.MediaInfrastructureUnavailableException;
 import com.example.liveChat.exceptions.RateLimitExceededException;
 import com.example.liveChat.infra.ratelimit.RateLimitInfrastructureException;
+import com.example.liveChat.infra.storage.AttachmentObjectNotFoundException;
+import com.example.liveChat.infra.storage.AttachmentStorageException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -102,6 +104,18 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(RateLimitInfrastructureException.class)
     private ResponseEntity<RestErrorMessage> rateLimitInfrastructureHandler(
             RateLimitInfrastructureException exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new RestErrorMessage(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage()));
+    }
+
+    @ExceptionHandler(AttachmentObjectNotFoundException.class)
+    private ResponseEntity<RestErrorMessage> attachmentNotFoundHandler(AttachmentObjectNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new RestErrorMessage(HttpStatus.CONFLICT, exception.getMessage()));
+    }
+
+    @ExceptionHandler(AttachmentStorageException.class)
+    private ResponseEntity<RestErrorMessage> attachmentStorageHandler(AttachmentStorageException exception) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(new RestErrorMessage(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage()));
     }
