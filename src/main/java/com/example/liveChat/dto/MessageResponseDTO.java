@@ -5,6 +5,7 @@ import com.example.liveChat.models.DirectMessage;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;
+import java.util.List;
 
 @Schema(description = "Mensagem persistida enviada pelo servidor via REST ou /user/queue/messages")
 public record MessageResponseDTO(
@@ -19,15 +20,21 @@ public record MessageResponseDTO(
         @Schema(description = "Nome do autor", example = "Ana Silva")
         String authorName,
         @Schema(description = "Instante UTC de envio", example = "2026-09-05T21:00:00Z")
-        Instant createdAt
+        Instant createdAt,
+        @Schema(description = "Anexos da mensagem, com URLs temporárias de download")
+        List<MessageAttachmentResponseDTO> attachments
 ) {
-    public static MessageResponseDTO from(DirectMessage message) {
-        return new MessageResponseDTO(message.getId(), message.getDirectChannel().getId(), message.getContent(),
-                message.getAuthor().getId(), message.getAuthor().getName(), message.getCreatedAt());
+    public MessageResponseDTO {
+        attachments = attachments == null ? List.of() : List.copyOf(attachments);
     }
 
-    public static MessageResponseDTO from(ChannelMessage message) {
+    public static MessageResponseDTO from(DirectMessage message, List<MessageAttachmentResponseDTO> attachments) {
+        return new MessageResponseDTO(message.getId(), message.getDirectChannel().getId(), message.getContent(),
+                message.getAuthor().getId(), message.getAuthor().getName(), message.getCreatedAt(), attachments);
+    }
+
+    public static MessageResponseDTO from(ChannelMessage message, List<MessageAttachmentResponseDTO> attachments) {
         return new MessageResponseDTO(message.getId(), message.getChannel().getId(), message.getContent(),
-                message.getAuthor().getId(), message.getAuthor().getName(), message.getCreatedAt());
+                message.getAuthor().getId(), message.getAuthor().getName(), message.getCreatedAt(), attachments);
     }
 }

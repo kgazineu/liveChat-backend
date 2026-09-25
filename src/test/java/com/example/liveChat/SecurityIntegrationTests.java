@@ -54,7 +54,8 @@ class SecurityIntegrationTests {
                         .header("Origin", "http://frontend.test")
                         .header("Access-Control-Request-Method", "POST"))
                 .andExpect(status().isOk())
-                .andExpect(header().string("Access-Control-Allow-Origin", "http://frontend.test"));
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://frontend.test"))
+                .andExpect(header().string("Access-Control-Expose-Headers", "Retry-After"));
 
         mvc.perform(options("/users/login")
                         .header("Origin", "https://untrusted.example")
