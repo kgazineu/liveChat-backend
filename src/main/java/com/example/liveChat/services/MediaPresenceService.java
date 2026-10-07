@@ -25,6 +25,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.user.SimpUser;
+import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.event.TransactionPhase;
@@ -48,6 +50,7 @@ public class MediaPresenceService {
     private final DirectChannelRepository directChannelRepository;
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final SimpUserRegistry simpUserRegistry;
     private final MediaPresenceProperties properties;
     private final LiveKitMediaService liveKitMediaService;
 
@@ -55,8 +58,8 @@ public class MediaPresenceService {
                                 ServerMemberRepository serverMemberRepository,
                                 ServerChannelRepository serverChannelRepository,
                                 DirectChannelRepository directChannelRepository, UserRepository userRepository,
-                                SimpMessagingTemplate messagingTemplate, MediaPresenceProperties properties,
-                                LiveKitMediaService liveKitMediaService) {
+                                SimpMessagingTemplate messagingTemplate, SimpUserRegistry simpUserRegistry,
+                                MediaPresenceProperties properties, LiveKitMediaService liveKitMediaService) {
         this.mediaSessionStore = mediaSessionStore;
         this.serverRepository = serverRepository;
         this.serverMemberRepository = serverMemberRepository;
@@ -64,6 +67,7 @@ public class MediaPresenceService {
         this.directChannelRepository = directChannelRepository;
         this.userRepository = userRepository;
         this.messagingTemplate = messagingTemplate;
+        this.simpUserRegistry = simpUserRegistry;
         this.properties = properties;
         this.liveKitMediaService = liveKitMediaService;
     }
@@ -119,8 +123,14 @@ public class MediaPresenceService {
         return updateState(MediaChannelKind.DIRECT, channelId, request, user);
     }
 
-    /** Chamada pelo evento de desconexão do STOMP. A expiração é processada pelo armazenamento de sessões. */
-    public synchronized void markReconnectingAfterDisconnect(String userEmail) {
+    /**
+     * Chamada pelo evento de desconexão do STOMP. A expiração é processada pelo armazenamento de sessões.
+     * Se o usuário ainda tiver outra conexão STOMP aberta (outra aba ou o app desktop), a presença continua ativa.
+     */
+    public synchronized void markReconnectingAfterDisconnect(String userEmail, String disconnectedSessionId) {
+        if (hasRealtimeConnection(userEmail, disconnectedSessionId)) {
+            return;
+        }
         userRepository.findActiveByEmailIgnoreCase(userEmail).ifPresent(user -> mediaSessionStore.findByUserId(user.getId())
                 .filter(session -> session.status() == MediaSessionStatus.ACTIVE)
                 .ifPresent(session -> {
@@ -151,8 +161,31 @@ public class MediaPresenceService {
         });
     }
 
+    /**
+     * Ao fim da janela de reconexão, o LiveKit decide se a chamada continua: uma queda apenas do STOMP não derruba
+     * a mídia, e o cliente não volta a chamar a entrada no canal. Se o participante ainda estiver na sala, a presença
+     * é reativada quando há uma conexão STOMP aberta, ou recebe uma nova janela enquanto o STOMP não volta.
+     */
     @EventListener
     public synchronized void expireReconnectingSession(MediaSessionExpiryEvent event) {
+        MediaSession current = mediaSessionStore.findByUserId(event.userId())
+                .filter(session -> session.status() == MediaSessionStatus.RECONNECTING
+                        && event.reconnectionId().equals(session.reconnectionId()))
+                .orElse(null);
+        if (current != null && liveKitMediaService.isParticipantConnected(current)) {
+            boolean realtimeConnected = userRepository.findActiveById(current.userId())
+                    .map(user -> hasRealtimeConnection(user.getEmail(), null))
+                    .orElse(false);
+            if (realtimeConnected) {
+                MediaSession reactivated = current.reactivate();
+                mediaSessionStore.delete(current);
+                mediaSessionStore.saveActive(reactivated);
+                publish(PARTICIPANT_UPDATED, reactivated);
+            } else {
+                mediaSessionStore.markReconnecting(current.reconnecting(UUID.randomUUID().toString()));
+            }
+            return;
+        }
         mediaSessionStore.removeExpired(event.userId(), event.reconnectionId())
                 .ifPresent(session -> {
                     try {
@@ -247,6 +280,12 @@ public class MediaPresenceService {
             throw new AccessDeniedException("You are not a participant of this direct channel");
         }
         return channel;
+    }
+
+    private boolean hasRealtimeConnection(String userEmail, String ignoredSessionId) {
+        SimpUser user = simpUserRegistry.getUser(userEmail);
+        return user != null && user.getSessions().stream()
+                .anyMatch(session -> !session.getId().equals(ignoredSessionId));
     }
 
     private void publish(String type, MediaSession session) {

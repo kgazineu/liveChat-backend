@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import okhttp3.ResponseBody;
 import retrofit2.Call;
 import retrofit2.Response;
 
@@ -23,7 +24,9 @@ import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -34,6 +37,7 @@ class LiveKitMediaServiceTests {
     @Mock private Call<List<LivekitModels.Room>> listRoomsCall;
     @Mock private Call<LivekitModels.Room> createRoomCall;
     @Mock private Call<Void> removeParticipantCall;
+    @Mock private Call<LivekitModels.ParticipantInfo> getParticipantCall;
 
     private LiveKitMediaService service;
 
@@ -92,6 +96,25 @@ class LiveKitMediaServiceTests {
         service.disconnect(session);
 
         verify(roomServiceClient).removeParticipant("direct-channel-id", user.getId());
+    }
+
+    @Test
+    void reportsWhetherTheParticipantIsStillInTheRoom() throws Exception {
+        User user = user();
+        MediaSession session = MediaSession.active(MediaChannelKind.DIRECT, null, "channel-id", user);
+        when(roomServiceClient.getParticipant("direct-channel-id", user.getId())).thenReturn(getParticipantCall);
+        when(getParticipantCall.execute())
+                .thenReturn(Response.success(LivekitModels.ParticipantInfo.newBuilder()
+                        .setIdentity(user.getId())
+                        .setState(LivekitModels.ParticipantInfo.State.ACTIVE)
+                        .build()))
+                .thenReturn(Response.error(404, ResponseBody.create("{\"code\":\"not_found\"}",
+                        okhttp3.MediaType.get("application/json"))))
+                .thenThrow(new IOException("offline"));
+
+        assertTrue(service.isParticipantConnected(session));
+        assertFalse(service.isParticipantConnected(session));
+        assertFalse(service.isParticipantConnected(session));
     }
 
     @Test
