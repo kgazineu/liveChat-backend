@@ -13,29 +13,43 @@ import com.example.liveChat.repositories.ServerChannelRepository;
 import com.example.liveChat.repositories.ServerMemberRepository;
 import com.example.liveChat.repositories.ServerRepository;
 import com.example.liveChat.repositories.UserRepository;
+import com.example.liveChat.services.LiveKitMediaService;
 import com.example.liveChat.services.MediaPresenceService;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.messaging.simp.user.SimpSession;
+import org.springframework.messaging.simp.user.SimpUser;
+import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -57,6 +71,13 @@ class MediaPresenceControllerIntegrationTests {
     @Autowired private DirectChannelRepository directChannels;
     @Autowired private MediaPresenceService mediaPresenceService;
     @Autowired private PasswordEncoder passwordEncoder;
+    @MockitoBean private SimpUserRegistry simpUserRegistry;
+    @MockitoSpyBean private LiveKitMediaService liveKitMediaService;
+
+    @AfterEach
+    void resetRealtimeState() {
+        reset(simpUserRegistry, liveKitMediaService);
+    }
 
     @Test
     void memberCanJoinSwitchUpdateAndLeaveVoiceChannel() throws Exception {
@@ -175,7 +196,7 @@ class MediaPresenceControllerIntegrationTests {
         String path = serverPath(server, voice);
 
         mvc.perform(post(path).header("Authorization", bearer(owner))).andExpect(status().isOk());
-        mediaPresenceService.markReconnectingAfterDisconnect(owner.getEmail());
+        mediaPresenceService.markReconnectingAfterDisconnect(owner.getEmail(), "stomp-session");
         mvc.perform(get(path).header("Authorization", bearer(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].status").value("RECONNECTING"));
@@ -183,6 +204,57 @@ class MediaPresenceControllerIntegrationTests {
         await().untilAsserted(() -> mvc.perform(get(path).header("Authorization", bearer(owner)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isEmpty()));
+    }
+
+    @Test
+    void disconnectOfOneRealtimeSessionKeepsPresenceWhileAnotherIsOpen() throws Exception {
+        User owner = user();
+        Server server = server(owner);
+        ServerChannel voice = channel(server, "Geral", ChannelType.VOICE, 0);
+        String path = serverPath(server, voice);
+        realtimeSessions(owner, "closed-tab", "open-tab");
+
+        mvc.perform(post(path).header("Authorization", bearer(owner))).andExpect(status().isOk());
+        mediaPresenceService.markReconnectingAfterDisconnect(owner.getEmail(), "closed-tab");
+
+        mvc.perform(get(path).header("Authorization", bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].status").value("ACTIVE"));
+    }
+
+    @Test
+    void realtimeDropKeepsPresenceWhileTheParticipantIsStillInTheMediaRoom() throws Exception {
+        User owner = user();
+        Server server = server(owner);
+        ServerChannel voice = channel(server, "Geral", ChannelType.VOICE, 0);
+        String path = serverPath(server, voice);
+        doReturn(true).when(liveKitMediaService).isParticipantConnected(any());
+
+        mvc.perform(post(path).header("Authorization", bearer(owner))).andExpect(status().isOk());
+        mediaPresenceService.markReconnectingAfterDisconnect(owner.getEmail(), "dropped");
+
+        // Sem STOMP, a janela de reconexão é renovada em vez de remover quem continua na chamada.
+        Thread.sleep(400);
+        mvc.perform(get(path).header("Authorization", bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].status").value("RECONNECTING"));
+
+        realtimeSessions(owner, "reconnected");
+        await().untilAsserted(() -> mvc.perform(get(path).header("Authorization", bearer(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].status").value("ACTIVE")));
+    }
+
+    private void realtimeSessions(User user, String... sessionIds) {
+        SimpUser simpUser = mock(SimpUser.class);
+        Set<SimpSession> sessions = new HashSet<>();
+        for (String sessionId : sessionIds) {
+            SimpSession session = mock(SimpSession.class);
+            when(session.getId()).thenReturn(sessionId);
+            sessions.add(session);
+        }
+        when(simpUser.getSessions()).thenReturn(sessions);
+        when(simpUserRegistry.getUser(user.getEmail())).thenReturn(simpUser);
     }
 
     private Server server(User owner, User... otherMembers) {

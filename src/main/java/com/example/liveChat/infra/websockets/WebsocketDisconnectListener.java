@@ -19,7 +19,7 @@ public class WebsocketDisconnectListener {
     public void onDisconnect(SessionDisconnectEvent event) {
         Principal principal = event.getUser();
         if (principal != null) {
-            mediaPresenceService.markReconnectingAfterDisconnect(principal.getName());
+            mediaPresenceService.markReconnectingAfterDisconnect(principal.getName(), event.getSessionId());
         }
     }
 }

@@ -78,6 +78,31 @@ public class LiveKitMediaService {
         }
     }
 
+    /** Consulta o LiveKit; sem provisionamento ou com o LiveKit indisponível, considera o participante ausente. */
+    public boolean isParticipantConnected(MediaSession session) {
+        if (!properties.isRoomProvisioningEnabled()) {
+            return false;
+        }
+        String roomName = roomName(session.channelKind(), session.channelId());
+        try {
+            Response<LivekitModels.ParticipantInfo> response = roomServiceClient
+                    .getParticipant(roomName, session.userId())
+                    .execute();
+            if (response.isSuccessful()) {
+                return response.body() != null
+                        && response.body().getState() != LivekitModels.ParticipantInfo.State.DISCONNECTED;
+            }
+            if (!isNotFound(response)) {
+                LOGGER.warn("Could not check participant {} in LiveKit room {}: HTTP {}",
+                        session.userId(), roomName, response.code());
+            }
+            return false;
+        } catch (IOException exception) {
+            LOGGER.warn("Could not check participant {} in LiveKit room {}", session.userId(), roomName, exception);
+            return false;
+        }
+    }
+
     private String roomName(MediaChannelKind channelKind, String channelId) {
         String prefix = channelKind == MediaChannelKind.SERVER_VOICE ? "server-voice-" : "direct-";
         return prefix + channelId;
