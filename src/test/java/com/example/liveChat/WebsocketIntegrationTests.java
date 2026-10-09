@@ -65,6 +65,18 @@ class WebsocketIntegrationTests {
     }
 
     @Test
+    void negotiatesHeartbeatsSoDeadConnectionsAreDetected() throws Exception {
+        User user = user();
+        try (Connection connection = connect()) {
+            connection.send("CONNECT\naccept-version:1.2\nhost:localhost\nheart-beat:10000,10000\nAuthorization:Bearer "
+                    + tokenService.generateToken(user).token() + "\n\n\0");
+            String connected = connection.next();
+            assertThat(connected).startsWith("CONNECTED\n");
+            assertThat(connected).contains("heart-beat:10000,10000");
+        }
+    }
+
+    @Test
     void authenticatedClientCannotSubscribeToBrokerQueue() throws Exception {
         User user = user();
         try (Connection connection = connect()) {

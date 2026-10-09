@@ -1,6 +1,7 @@
 package com.example.liveChat.infra.websockets;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.StompWebSocketEndpointRegistration;
 
@@ -16,7 +17,7 @@ class WebsocketConfigTests {
         StompWebSocketEndpointRegistration registration = mock(StompWebSocketEndpointRegistration.class);
         when(registry.addEndpoint("/ws")).thenReturn(registration);
         WebsocketConfig config = new WebsocketConfig(
-                interceptor, "https://chat.example.test, https://admin.example.test");
+                interceptor, mock(TaskScheduler.class), "https://chat.example.test, https://admin.example.test");
 
         config.registerStompEndpoints(registry);
 
