@@ -2,6 +2,7 @@ package com.example.liveChat.infra.ratelimit;
 
 import com.example.liveChat.exceptions.RateLimitExceededException;
 import org.springframework.context.annotation.Profile;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -36,10 +37,16 @@ public class RedisRateLimiter implements RateLimiter {
         long windowMillis = RateLimitSupport.validateAndGetWindowMillis(scope, key, limit, window);
         List<?> result;
         try {
-            result = redisTemplate.execute(
-                    SCRIPT,
-                    List.of(RateLimitSupport.storageKey(scope, key)),
-                    Long.toString(windowMillis));
+            result = execute(scope, key, windowMillis);
+        } catch (DataAccessException transientFailure) {
+            // Provedores gerenciados derrubam conexões ociosas (o Lettuce traduz isso como falha de conexão, timeout ou
+            // "connection closed"); ele reconecta e a segunda tentativa costuma passar. No pior caso a janela conta uma requisição a mais, o que é aceitável para um limite de abuso.
+            try {
+                result = execute(scope, key, windowMillis);
+            } catch (RuntimeException exception) {
+                if (exception != transientFailure) exception.addSuppressed(transientFailure);
+                throw new RateLimitInfrastructureException(exception);
+            }
         } catch (RuntimeException exception) {
             throw new RateLimitInfrastructureException(exception);
         }
@@ -53,5 +60,9 @@ public class RedisRateLimiter implements RateLimiter {
         if (count.longValue() > limit) {
             throw new RateLimitExceededException(RateLimitSupport.retryAfterSeconds(ttlMillis.longValue()));
         }
+    }
+
+    private List<?> execute(String scope, String key, long windowMillis) {
+        return redisTemplate.execute(SCRIPT, List.of(RateLimitSupport.storageKey(scope, key)), Long.toString(windowMillis));
     }
 }

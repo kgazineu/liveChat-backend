@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -67,6 +68,19 @@ class RedisRateLimiterTests {
 
     @Test
     @SuppressWarnings("rawtypes")
+    void retriesOnceWhenTheIdleConnectionWasDropped() {
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any()))
+                .thenThrow(new RedisConnectionFailureException("connection reset by peer"))
+                .thenReturn(List.of(1L, 10_000L));
+        RedisRateLimiter rateLimiter = new RedisRateLimiter(redisTemplate);
+
+        assertThatCode(() -> rateLimiter.check("login-ip", "client", 10, Duration.ofMinutes(5)))
+                .doesNotThrowAnyException();
+        verify(redisTemplate, times(2)).execute(any(RedisScript.class), anyList(), any());
+    }
+
+    @Test
+    @SuppressWarnings("rawtypes")
     void failsClosedWhenRedisIsUnavailable() {
         RedisConnectionFailureException redisFailure = new RedisConnectionFailureException("connection details");
         when(redisTemplate.execute(any(RedisScript.class), anyList(), any())).thenThrow(redisFailure);
@@ -76,5 +90,19 @@ class RedisRateLimiterTests {
                 .isInstanceOf(RateLimitInfrastructureException.class)
                 .hasMessage("Rate limiting service is temporarily unavailable")
                 .hasCause(redisFailure);
+        verify(redisTemplate, times(2)).execute(any(RedisScript.class), anyList(), any());
+    }
+
+    @Test
+    @SuppressWarnings("rawtypes")
+    void doesNotRetryUnexpectedFailures() {
+        IllegalStateException unexpected = new IllegalStateException("script error");
+        when(redisTemplate.execute(any(RedisScript.class), anyList(), any())).thenThrow(unexpected);
+        RedisRateLimiter rateLimiter = new RedisRateLimiter(redisTemplate);
+
+        assertThatThrownBy(() -> rateLimiter.check("login", "client", 5, Duration.ofSeconds(10)))
+                .isInstanceOf(RateLimitInfrastructureException.class)
+                .hasCause(unexpected);
+        verify(redisTemplate).execute(any(RedisScript.class), anyList(), any());
     }
 }
