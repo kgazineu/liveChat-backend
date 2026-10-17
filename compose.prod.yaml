@@ -24,15 +24,16 @@ services:
     restart: unless-stopped
     environment:
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?defina LIVEKIT_API_KEY no arquivo .env}: ${LIVEKIT_API_SECRET:?defina LIVEKIT_API_SECRET no arquivo .env}"
-      # Sinalização entra pelo Cloudflare Tunnel em 7880; mídia vai direto pelas portas 7881/tcp e 7882/udp,
-      # encaminhadas do roteador para o host e do host para esta VM. O IP público é descoberto via STUN.
+      # Sinalização entra pelo Cloudflare Tunnel em 7880. A rede de casa está atrás de CGNAT, então a mídia
+      # (7881/tcp e 7882/udp) entra por uma VPS relay e chega a esta VM por um túnel WireGuard. O LiveKit
+      # anuncia o IP público da VPS, já que o STUN descobriria o IP compartilhado da operadora.
       LIVEKIT_CONFIG: |
         port: 7880
         log_level: info
         rtc:
           tcp_port: 7881
           udp_port: 7882
-          use_external_ip: true
+          node_ip: ${LIVEKIT_NODE_IP:?defina LIVEKIT_NODE_IP no arquivo .env}
     ports:
       - "${LIVEKIT_SIGNAL_BIND_ADDRESS:-127.0.0.1}:7880:7880"
       - "7881:7881"
