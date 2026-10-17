@@ -19,6 +19,35 @@ services:
       retries: 5
       start_period: 10s
 
+  livekit:
+    image: livekit/livekit-server:v1.13.9
+    restart: unless-stopped
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?defina LIVEKIT_API_KEY no arquivo .env}: ${LIVEKIT_API_SECRET:?defina LIVEKIT_API_SECRET no arquivo .env}"
+      # Sinalização entra pelo Cloudflare Tunnel em 7880. A rede de casa está atrás de CGNAT, então a mídia
+      # (7881/tcp e 7882/udp) entra por uma VPS relay e chega a esta VM por um túnel WireGuard. O LiveKit
+      # anuncia o IP público da VPS, já que o STUN descobriria o IP compartilhado da operadora.
+      LIVEKIT_CONFIG: |
+        port: 7880
+        log_level: info
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          node_ip: ${LIVEKIT_NODE_IP:?defina LIVEKIT_NODE_IP no arquivo .env}
+    ports:
+      - "${LIVEKIT_SIGNAL_BIND_ADDRESS:-127.0.0.1}:7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    mem_limit: ${LIVEKIT_MEM_LIMIT:-384m}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget --no-verbose --tries=1 --spider http://localhost:7880/ || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
   app:
     image: ghcr.io/kgazineu/livechat-backend:${APP_VERSION:-latest}
     pull_policy: always
@@ -57,7 +86,7 @@ services:
       TOMCAT_THREADS_MAX: ${TOMCAT_THREADS_MAX:-100}
       TOMCAT_MAX_CONNECTIONS: ${TOMCAT_MAX_CONNECTIONS:-1000}
       TOMCAT_ACCEPT_COUNT: ${TOMCAT_ACCEPT_COUNT:-100}
-      LIVEKIT_API_URL: ${LIVEKIT_API_URL:?defina LIVEKIT_API_URL no arquivo .env}
+      LIVEKIT_API_URL: http://livekit:7880
       LIVEKIT_CLIENT_URL: ${LIVEKIT_CLIENT_URL:?defina LIVEKIT_CLIENT_URL no arquivo .env}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?defina LIVEKIT_API_KEY no arquivo .env}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?defina LIVEKIT_API_SECRET no arquivo .env}
@@ -69,6 +98,8 @@ services:
       - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:8080"
     depends_on:
       postgres:
+        condition: service_healthy
+      livekit:
         condition: service_healthy
     healthcheck:
       test:
