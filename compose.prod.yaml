@@ -34,6 +34,12 @@ services:
           tcp_port: 7881
           udp_port: 7882
           node_ip: ${LIVEKIT_NODE_IP:?defina LIVEKIT_NODE_IP no arquivo .env}
+          # TURN/TLS na 443 (coturn na VPS) para redes que bloqueiam UDP e portas fora de 80/443.
+          turn_servers:
+            - host: ${LIVEKIT_TURN_HOST:?defina LIVEKIT_TURN_HOST no arquivo .env}
+              port: 443
+              protocol: tls
+              secret: ${LIVEKIT_TURN_SECRET:?defina LIVEKIT_TURN_SECRET no arquivo .env}
     ports:
       - "${LIVEKIT_SIGNAL_BIND_ADDRESS:-127.0.0.1}:7880:7880"
       - "7881:7881"
